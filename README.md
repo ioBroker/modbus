@@ -1,10 +1,78 @@
 # @iobroker/modbus
+
 This is a library that allows you to implement ioBroker Adapter that communicates via modbus with some device.
 
 It could accept TSV file as a configuration.
 
+## Usage
+
+### With constant TSV file
+
+```typescript
+import ModbusTemplate, { tsv2registers } from '@iobroker/modbus';
+import type { AdapterOptions } from '@iobroker/adapter-core';
+
+export class ModbusAdapter extends ModbusTemplate {
+    public constructor(options: Partial<AdapterOptions> = {}) {
+        const holdingRegs = tsv2registers('holdingRegs', `${__dirname}/../data/holdingRegs.tsv`);
+
+        super('modbus-solaredge', options, undefined, { holdingRegs });
+    }
+}
+
+// If started as allInOne mode => return function to create instance
+if (require.main !== module) {
+    // Export the constructor in compact mode
+    module.exports = (options: Partial<AdapterOptions> | undefined) => new ModbusAdapter(options);
+} else {
+    // otherwise start the instance directly
+    (() => new ModbusAdapter())();
+}
+```
+
+### With dynamic TSV file
+
+```typescript
+import ModbusTemplate, { tsv2registers } from '@iobroker/modbus';
+import type { AdapterOptions } from '@iobroker/adapter-core';
+
+export class ModbusAdapter extends ModbusTemplate {
+    public constructor(options: Partial<AdapterOptions> = {}) {
+        super(
+            'modbus-solaredge',
+            options,
+            {
+                port: 520, // you can override all parameters here
+            },
+            'deviceType', // name of the attribute in config to read files from
+            `${__dirname}/..`, // adapter diractory
+        );
+    }
+}
+
+// If started as allInOne mode => return function to create instance
+if (require.main !== module) {
+    // Export the constructor in compact mode
+    module.exports = (options: Partial<AdapterOptions> | undefined) => new ModbusAdapter(options);
+} else {
+    // otherwise start the instance directly
+    (() => new ModbusAdapter())();
+}
+```
+
+In the second example the adapter will read from its configuration attribute `deviceType` the type of the device and tries to find file:
+
+- `<adapterDirectory>/<valueOfDeviceType>` - holding registers
+- or `<adapterDirectory>/<valueOfDeviceType without '.tsv'>inputRegs.tsv` - for input registers
+
+If the value of `deviceType` is `data/holdingRegs.tsv` the adapter will search for file `<adapterDirectory>/data/holdingRegs.tsv`.
+
+If the value of `deviceType` is `data/m100.tsv` the adapter will search for files `<adapterDirectory>/data/m100coils.tsv`, `<adapterDirectory>/data/m100disInputs.tsv`, `<adapterDirectory>/data/m100inputRegs.tsv`, `<adapterDirectory>/data/m100holdingRegs.tsv`
+
 ## Test
+
 There are some programs in folder `test` to test the TCP communication:
+
 - Ananas32/64 is a slave simulator (only holding registers and inputs, no coils and digital inputs)
 - RMMS is master simulator
 - mod_RSsim.exe is a slave simulator. It can be that you need [Microsoft Visual C++ 2008 SP1 Redistributable Package](https://www.microsoft.com/en-us/download/details.aspx?id=5582) to start it (because of Side-By-Side error).
@@ -12,11 +80,15 @@ There are some programs in folder `test` to test the TCP communication:
 <!--
 	### **WORK IN PROGRESS**
 -->
+
 ## Changelog
+
 ### 7.0.5 (2025-10-06)
-* (bluefox) initial commit
+
+- (bluefox) initial commit
 
 ## License
+
 The MIT License (MIT)
 
 Copyright (c) 2015-2025 Bluefox <dogafox@gmail.com>
