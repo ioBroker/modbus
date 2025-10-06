@@ -1,68 +1,68 @@
 {
-    "name": "@iobroker/modbus",
-    "version": "7.0.0",
-    "description": "Template for Modbus protocol in ioBroker",
-    "publishConfig": {
-        "access": "public"
-    },
-    "author": {
-        "name": "bluefox",
-        "email": "dogafox@gmail.com"
-    },
-    "contributors": [
-        {
-            "name": "bluefox",
-            "email": "dogafox@gmail.com"
-        }
-    ],
-    "homepage": "https://github.com/ioBroker/modbus",
-    "license": "MIT",
-    "keywords": [
-        "ioBroker",
-        "modbus",
-        "Smart Home",
-        "home automation"
-    ],
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/ioBroker/modbus"
-    },
-    "engines": {
-        "node": ">=18"
-    },
-    "optionalDependencies": {
-        "serialport": "^13.0.0"
-    },
-    "dependencies": {
-        "@iobroker/adapter-core": "^3.3.2",
-        "tsv-json": "^2.0.0"
-    },
-    "devDependencies": {
-        "@alcalzone/release-script": "^3.8.0",
-        "@alcalzone/release-script-plugin-license": "^3.7.0",
-        "@iobroker/build-tools": "^2.0.15",
-        "@iobroker/eslint-config": "^2.2.0",
-        "@types/node": "^24.6.2",
-        "@types/serialport": "^10.2.0"
-    },
-    "main": "build/index.js",
-    "files": [
-        "build/",
-        "LICENSE"
-    ],
-    "scripts": {
-        "prepublishOnly": "npm run build",
-        "lint": "eslint -c eslint.config.mjs",
-        "build": "tsc -p tsconfig.build.json",
-        "release": "release-script",
-        "release-patch": "release-script patch --yes",
-        "release-minor": "release-script minor --yes",
-        "release-major": "release-script major --yes",
-        "update-packages": "npx -y npm-check-updates --upgrade",
-        "npm": "npm i"
-    },
-    "bugs": {
-        "url": "https://github.com/ioBroker/modbus/issues"
-    },
-    "readmeFilename": "README.md"
+  "name": "@iobroker/modbus",
+  "version": "7.0.1",
+  "description": "Template for Modbus protocol in ioBroker",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": {
+    "name": "bluefox",
+    "email": "dogafox@gmail.com"
+  },
+  "contributors": [
+    {
+      "name": "bluefox",
+      "email": "dogafox@gmail.com"
+    }
+  ],
+  "homepage": "https://github.com/ioBroker/modbus",
+  "license": "MIT",
+  "keywords": [
+    "ioBroker",
+    "modbus",
+    "Smart Home",
+    "home automation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ioBroker/modbus"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "serialport": "^13.0.0"
+  },
+  "dependencies": {
+    "@iobroker/adapter-core": "^3.3.2",
+    "tsv-json": "^2.0.0"
+  },
+  "devDependencies": {
+    "@alcalzone/release-script": "^3.8.0",
+    "@alcalzone/release-script-plugin-license": "^3.7.0",
+    "@iobroker/build-tools": "^2.0.15",
+    "@iobroker/eslint-config": "^2.2.0",
+    "@types/node": "^24.6.2",
+    "@types/serialport": "^10.2.0"
+  },
+  "main": "build/index.js",
+  "files": [
+    "build/",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepublishOnly": "npm run build",
+    "lint": "eslint -c eslint.config.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "release": "release-script",
+    "release-patch": "release-script patch --yes",
+    "release-minor": "release-script minor --yes",
+    "release-major": "release-script major --yes",
+    "update-packages": "npx -y npm-check-updates --upgrade",
+    "npm": "npm i"
+  },
+  "bugs": {
+    "url": "https://github.com/ioBroker/modbus/issues"
+  },
+  "readmeFilename": "README.md"
 }
