@@ -48,6 +48,7 @@
         "LICENSE"
     ],
     "scripts": {
+        "prepublishOnly": "npm run build",
         "lint": "eslint -c eslint.config.mjs",
         "build": "tsc -p tsconfig.build.json",
         "release": "release-script",
