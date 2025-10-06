@@ -2,6 +2,9 @@
     "name": "@iobroker/modbus",
     "version": "7.0.0",
     "description": "Template for Modbus protocol in ioBroker",
+    "publishConfig": {
+        "access": "public"
+    },
     "author": {
         "name": "bluefox",
         "email": "dogafox@gmail.com"
