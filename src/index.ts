@@ -10,7 +10,7 @@ import type {
     RegisterType,
 } from './types';
 import { join } from 'node:path';
-import { statSync, readdirSync } from 'node:fs';
+import { statSync, readdirSync, existsSync } from 'node:fs';
 import type { PortInfo } from '@serialport/bindings-interface';
 import tsv2registers from './convert';
 
@@ -67,6 +67,27 @@ const defaultParams = {
 };
 
 export { tsv2registers };
+
+// Extract from object the attribute by path
+function getParam(obj: Record<string, any>, path: string): any {
+    const parts = path.split('/');
+    for (let i = 0; i < parts.length; i++) {
+        if (typeof obj[parts[i]] !== 'object') {
+            return undefined;
+        }
+        obj = obj[parts[i]];
+    }
+    return obj;
+}
+
+/**
+ * Modbus class
+ *
+ * @param adapterName Adapter name like modbus-solaredge
+ * @param params Connection and communications parameters
+ * @param registersOrParameterName Configuration for registers or name of the attribute in the config with the TSV file name
+ * @param adapterRootDirectory if registersOrParameterName is an attribute name, here is the adapter root directory
+ */
 
 export default class ModbusAdapter extends Adapter {
     declare config: ModbusAdapterConfig;
@@ -149,12 +170,15 @@ export default class ModbusAdapter extends Adapter {
     public constructor(
         adapterName: string,
         params: ModbusParameters,
-        registers: {
-            disInputs?: Register[];
-            coils?: Register[];
-            inputRegs?: Register[];
-            holdingRegs?: Register[];
-        },
+        registersOrParameterName:
+            | {
+                  disInputs?: Register[];
+                  coils?: Register[];
+                  inputRegs?: Register[];
+                  holdingRegs?: Register[];
+              }
+            | string,
+        adapterRootDirectory?: string,
     ) {
         super({
             name: adapterName,
@@ -165,10 +189,47 @@ export default class ModbusAdapter extends Adapter {
                     ...params,
                     ...this.config.params,
                 };
-                this.config.coils ||= registers.coils || [];
-                this.config.disInputs ||= registers.disInputs || [];
-                this.config.inputRegs ||= registers.inputRegs || [];
-                this.config.holdingRegs ||= registers.holdingRegs || [];
+                if (typeof registersOrParameterName === 'object') {
+                    this.config.coils ||= registersOrParameterName.coils || [];
+                    this.config.disInputs ||= registersOrParameterName.disInputs || [];
+                    this.config.inputRegs ||= registersOrParameterName.inputRegs || [];
+                    this.config.holdingRegs ||= registersOrParameterName.holdingRegs || [];
+                } else {
+                    if (!adapterRootDirectory) {
+                        throw new Error('adapterRootDirectory must be a directory');
+                    }
+                    // Try to read file
+                    const fileName: string = getParam(this.config, registersOrParameterName);
+                    if (existsSync(join(adapterRootDirectory, fileName))) {
+                        // It is only one file, so apply to holdings register
+                        const holdingRegs = tsv2registers('holdingRegs', join(adapterRootDirectory, fileName));
+                        this.config.coils ||= [];
+                        this.config.disInputs ||= [];
+                        this.config.inputRegs = holdingRegs;
+                        this.config.holdingRegs ||= [];
+                    } else {
+                        const [name, ext] = fileName.split('.');
+                        if (
+                            ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].find(type =>
+                                existsSync(join(adapterRootDirectory, `${name + type}.${ext}`)),
+                            )
+                        ) {
+                            this.config.coils ||= [];
+                            this.config.disInputs ||= [];
+                            this.config.inputRegs ||= [];
+                            this.config.holdingRegs ||= [];
+                            // We have multiple definitions
+                            ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].forEach(type => {
+                                if (existsSync(join(adapterRootDirectory, `${name + type}.${ext}`))) {
+                                    this.config[type as 'coils' | 'disInputs' | 'inputRegs' | 'holdingRegs'] ||=
+                                        tsv2registers('holdingRegs', join(adapterRootDirectory, fileName));
+                                }
+                            });
+                        } else {
+                            throw new Error(`Cannot find TSV file from "${registersOrParameterName} => ${fileName}`);
+                        }
+                    }
+                }
 
                 try {
                     import('serialport')
