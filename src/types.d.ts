@@ -65,30 +65,6 @@ export interface RegisterInternal extends Omit<Register, '_address' | 'len' | 'f
 export type RegisterType = 'disInputs' | 'coils' | 'inputRegs' | 'holdingRegs';
 export type ModbusTransport = 'tcp' | 'serial' | 'tcprtu' | 'tcp-ssl';
 
-export interface OptionField {
-    name: keyof ModbusAdapterConfig['params'];
-    type: 'checkbox' | 'text' | 'number' | 'select' | 'ports';
-    dimension?: string;
-    help?: string;
-    tooltip?: string;
-    title: string;
-    options?: { value: string; title: string }[];
-    min?: number;
-    max?: number;
-}
-
-export interface RegisterField {
-    name: keyof Register;
-    title: string;
-    type: string;
-    width?: number | string;
-    expert?: boolean;
-    formulaDisabled?: boolean;
-    sorted?: boolean;
-    tooltip?: string;
-    options?: Array<{ value: string; title: string }>;
-}
-
 interface DeviceOption {
     fullIds: string[];
     addressHigh: number;
