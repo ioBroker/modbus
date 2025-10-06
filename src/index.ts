@@ -1,4 +1,4 @@
-import { Adapter } from '@iobroker/adapter-core';
+import { Adapter, type AdapterOptions } from '@iobroker/adapter-core';
 import type {
     DeviceMasterOption,
     DeviceSlaveOption,
@@ -83,12 +83,12 @@ function getParam(obj: Record<string, any>, path: string): any {
 /**
  * Modbus class
  *
- * @param adapterName Adapter name like modbus-solaredge
+ * @param adapterName Adapter name like "modbus-solaredge"
+ * @param options Overload standard adapter options
  * @param params Connection and communications parameters
  * @param registersOrParameterName Configuration for registers or name of the attribute in the config with the TSV file name
  * @param adapterRootDirectory if registersOrParameterName is an attribute name, here is the adapter root directory
  */
-
 export default class ModbusAdapter extends Adapter {
     declare config: ModbusAdapterConfig;
     private infoRegExp!: RegExp;
@@ -169,8 +169,9 @@ export default class ModbusAdapter extends Adapter {
 
     public constructor(
         adapterName: string,
-        params: ModbusParameters,
-        registersOrParameterName:
+        options: Partial<AdapterOptions> = {},
+        params?: ModbusParameters,
+        registersOrParameterName?:
             | {
                   disInputs?: Register[];
                   coils?: Register[];
@@ -181,6 +182,7 @@ export default class ModbusAdapter extends Adapter {
         adapterRootDirectory?: string,
     ) {
         super({
+            ...options,
             name: adapterName,
             ready: () => {
                 // Merge configuration
@@ -194,7 +196,7 @@ export default class ModbusAdapter extends Adapter {
                     this.config.disInputs ||= registersOrParameterName.disInputs || [];
                     this.config.inputRegs ||= registersOrParameterName.inputRegs || [];
                     this.config.holdingRegs ||= registersOrParameterName.holdingRegs || [];
-                } else {
+                } else if (typeof registersOrParameterName === 'string') {
                     if (!adapterRootDirectory) {
                         throw new Error('adapterRootDirectory must be a directory');
                     }
