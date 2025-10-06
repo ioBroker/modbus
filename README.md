@@ -13,7 +13,7 @@ There are some programs in folder `test` to test the TCP communication:
 	### **WORK IN PROGRESS**
 -->
 ## Changelog
-### 0.0.1
+### **WORK IN PROGRESS**
 * (bluefox) initial commit
 
 ## License
