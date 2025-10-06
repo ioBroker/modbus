@@ -1,14 +1,5 @@
 import { Adapter, type AdapterOptions } from '@iobroker/adapter-core';
-import type {
-    DeviceMasterOption,
-    DeviceSlaveOption,
-    ModbusAdapterConfig,
-    ModbusParameters,
-    Options,
-    Register,
-    RegisterInternal,
-    RegisterType,
-} from './types';
+import type * as Modbus from './types';
 import { join } from 'node:path';
 import { statSync, readdirSync, existsSync } from 'node:fs';
 import type { PortInfo } from '@serialport/bindings-interface';
@@ -18,7 +9,7 @@ import { Master } from './lib/Master'; // Get common adapter utils
 import Slave from './lib/Slave'; // Get common adapter utils
 let serialPortList: (() => Promise<PortInfo[]>) | null = null;
 
-function sortByAddress(a: Register, b: Register): 1 | 0 | -1 {
+function sortByAddress(a: Modbus.Register, b: Modbus.Register): 1 | 0 | -1 {
     const ad = parseFloat(a._address as string);
     const bd = parseFloat(b._address as string);
     return ad < bd ? -1 : ad > bd ? 1 : 0;
@@ -66,7 +57,7 @@ const defaultParams = {
     sslRejectUnauthorized: true,
 };
 
-export { tsv2registers };
+export { tsv2registers, Modbus };
 
 // Extract from object the attribute by path
 function getParam(obj: Record<string, any>, path: string): any {
@@ -90,7 +81,7 @@ function getParam(obj: Record<string, any>, path: string): any {
  * @param adapterRootDirectory if registersOrParameterName is an attribute name, here is the adapter root directory
  */
 export default class ModbusAdapter extends Adapter {
-    declare config: ModbusAdapterConfig;
+    declare config: Modbus.ModbusAdapterConfig;
     private infoRegExp!: RegExp;
     static readonly _rmap: { [bit: number]: number } = {
         0: 15,
@@ -170,13 +161,13 @@ export default class ModbusAdapter extends Adapter {
     public constructor(
         adapterName: string,
         options: Partial<AdapterOptions> = {},
-        params?: ModbusParameters,
+        params?: Modbus.ModbusParameters,
         registersOrParameterName?:
             | {
-                  disInputs?: Register[];
-                  coils?: Register[];
-                  inputRegs?: Register[];
-                  holdingRegs?: Register[];
+                  disInputs?: Modbus.Register[];
+                  coils?: Modbus.Register[];
+                  inputRegs?: Modbus.Register[];
+                  holdingRegs?: Modbus.Register[];
               }
             | string,
         adapterRootDirectory?: string,
@@ -406,7 +397,7 @@ export default class ModbusAdapter extends Adapter {
         }
     }
 
-    static address2alias(id: RegisterType, address: number | string, isDirect: boolean, offset: number): number {
+    static address2alias(id: Modbus.RegisterType, address: number | string, isDirect: boolean, offset: number): number {
         if (typeof address === 'string') {
             address = parseInt(address, 10);
         }
@@ -457,10 +448,10 @@ export default class ModbusAdapter extends Adapter {
         }
     }
 
-    async prepareConfig(): Promise<Options> {
+    async prepareConfig(): Promise<Modbus.Options> {
         const params = this.config.params;
 
-        const options: Options = {
+        const options: Modbus.Options = {
             config: {
                 type: params.type || 'tcp',
                 slave: params.slave === '1',
@@ -652,7 +643,7 @@ export default class ModbusAdapter extends Adapter {
         return options;
     }
 
-    checkDeviceIds(options: Options, config: Register[], deviceIds: number[]): void {
+    checkDeviceIds(options: Modbus.Options, config: Modbus.Register[], deviceIds: number[]): void {
         for (let i = config.length - 1; i >= 0; i--) {
             config[i].deviceId = !options.config.multiDeviceId
                 ? options.config.defaultDeviceId
@@ -671,7 +662,7 @@ export default class ModbusAdapter extends Adapter {
     }
 
     checkObjects(
-        regType: RegisterType,
+        regType: Modbus.RegisterType,
         regName: string,
         regFullName: string,
         tasks: (
@@ -682,7 +673,7 @@ export default class ModbusAdapter extends Adapter {
         newObjects: string[],
         deviceId: number,
     ): void {
-        const regs = this.config[regType] as RegisterInternal[];
+        const regs = this.config[regType] as Modbus.RegisterInternal[];
 
         this.log.debug(`Initialize Objects for ${regType}: ${JSON.stringify(regs)}`);
 
@@ -776,10 +767,10 @@ export default class ModbusAdapter extends Adapter {
 
     assignIds(
         deviceId: number,
-        config: RegisterInternal[],
-        result: DeviceSlaveOption | DeviceMasterOption,
+        config: Modbus.RegisterInternal[],
+        result: Modbus.DeviceSlaveOption | Modbus.DeviceMasterOption,
         regName: string,
-        regType: RegisterType,
+        regType: Modbus.RegisterType,
         localOptions: {
             multiDeviceId?: boolean;
             showAliases: boolean;
@@ -871,9 +862,9 @@ export default class ModbusAdapter extends Adapter {
     iterateAddresses(
         isBools: boolean,
         deviceId: number,
-        result: DeviceSlaveOption | DeviceMasterOption,
+        result: Modbus.DeviceSlaveOption | Modbus.DeviceMasterOption,
         regName: string,
-        regType: RegisterType,
+        regType: Modbus.RegisterType,
         localOptions: {
             multiDeviceId?: boolean;
             showAliases: boolean;
@@ -935,8 +926,8 @@ export default class ModbusAdapter extends Adapter {
                 }
 
                 // collect cyclic write registers
-                if (config[i].cw && Array.isArray((result as DeviceMasterOption).cyclicWrite)) {
-                    (result as DeviceMasterOption).cyclicWrite!.push(`${this.namespace}.${config[i].id}`);
+                if (config[i].cw && Array.isArray((result as Modbus.DeviceMasterOption).cyclicWrite)) {
+                    (result as Modbus.DeviceMasterOption).cyclicWrite!.push(`${this.namespace}.${config[i].id}`);
                 }
 
                 if (address < result.addressLow) {
@@ -964,8 +955,8 @@ export default class ModbusAdapter extends Adapter {
                 }
 
                 // try to detect the next block
-                if ((result as DeviceMasterOption).blocks) {
-                    const blocks = (result as DeviceMasterOption).blocks;
+                if ((result as Modbus.DeviceMasterOption).blocks) {
+                    const blocks = (result as Modbus.DeviceMasterOption).blocks;
                     const wouldExceedLimit = config[i].address + config[i].len - blockStart > maxBlock;
                     const hasAddressGap = config[i].address - lastAddress > 10 && config[i].len < 10;
 
@@ -987,10 +978,10 @@ export default class ModbusAdapter extends Adapter {
             if (
                 lastAddress &&
                 lastAddress - blockStart &&
-                (result as DeviceMasterOption).blocks &&
-                !(result as DeviceMasterOption).blocks.map(obj => obj.start).includes(blockStart)
+                (result as Modbus.DeviceMasterOption).blocks &&
+                !(result as Modbus.DeviceMasterOption).blocks.map(obj => obj.start).includes(blockStart)
             ) {
-                (result as DeviceMasterOption).blocks.push({
+                (result as Modbus.DeviceMasterOption).blocks.push({
                     start: blockStart,
                     count: lastAddress - blockStart,
                     startIndex: startIndex,
@@ -1015,8 +1006,8 @@ export default class ModbusAdapter extends Adapter {
                         result.length = ((result.length >> 4) + 1) << 4;
                     }
 
-                    if ((result as DeviceMasterOption).blocks) {
-                        const blocks = (result as DeviceMasterOption).blocks;
+                    if ((result as Modbus.DeviceMasterOption).blocks) {
+                        const blocks = (result as Modbus.DeviceMasterOption).blocks;
                         for (let b = 0; b < blocks.length; b++) {
                             const _oldStart = blocks[b].start;
 
@@ -1036,19 +1027,19 @@ export default class ModbusAdapter extends Adapter {
                 result.length = 0;
             }
 
-            if ((result as DeviceSlaveOption).mapping) {
+            if ((result as Modbus.DeviceSlaveOption).mapping) {
                 for (let i = 0; i < config.length; i++) {
                     this.log.debug(
                         `Iterate ${regType} ${regName}: ${config[i].address - result.addressLow} = ${config[i].id}`,
                     );
-                    (result as DeviceSlaveOption).mapping[config[i].address - result.addressLow] =
+                    (result as Modbus.DeviceSlaveOption).mapping[config[i].address - result.addressLow] =
                         `${this.namespace}.${config[i].id}`;
                 }
             }
         }
     }
 
-    async parseConfig(): Promise<Options> {
+    async parseConfig(): Promise<Modbus.Options> {
         const options = await this.prepareConfig();
         const params = this.config.params;
 
@@ -1098,7 +1089,7 @@ export default class ModbusAdapter extends Adapter {
             // Discrete inputs
             this.assignIds(
                 deviceId,
-                this.config.disInputs as RegisterInternal[],
+                this.config.disInputs as Modbus.RegisterInternal[],
                 device.disInputs,
                 'discreteInputs',
                 'disInputs',
@@ -1106,7 +1097,7 @@ export default class ModbusAdapter extends Adapter {
             );
             this.assignIds(
                 deviceId,
-                this.config.coils as RegisterInternal[],
+                this.config.coils as Modbus.RegisterInternal[],
                 device.coils,
                 'coils',
                 'coils',
@@ -1114,7 +1105,7 @@ export default class ModbusAdapter extends Adapter {
             );
             this.assignIds(
                 deviceId,
-                this.config.inputRegs as RegisterInternal[],
+                this.config.inputRegs as Modbus.RegisterInternal[],
                 device.inputRegs,
                 'inputRegisters',
                 'inputRegs',
@@ -1122,23 +1113,23 @@ export default class ModbusAdapter extends Adapter {
             );
             this.assignIds(
                 deviceId,
-                this.config.holdingRegs as RegisterInternal[],
+                this.config.holdingRegs as Modbus.RegisterInternal[],
                 device.holdingRegs,
                 'holdingRegisters',
                 'holdingRegs',
                 localOptions,
             );
 
-            device.disInputs.config = (this.config.disInputs as RegisterInternal[]).filter(
+            device.disInputs.config = (this.config.disInputs as Modbus.RegisterInternal[]).filter(
                 e => e.deviceId === deviceId,
             );
-            device.coils.config = (this.config.coils as RegisterInternal[]).filter(
+            device.coils.config = (this.config.coils as Modbus.RegisterInternal[]).filter(
                 e => e.poll && e.deviceId === deviceId,
             );
-            device.inputRegs.config = (this.config.inputRegs as RegisterInternal[]).filter(
+            device.inputRegs.config = (this.config.inputRegs as Modbus.RegisterInternal[]).filter(
                 e => e.deviceId === deviceId,
             );
-            device.holdingRegs.config = (this.config.holdingRegs as RegisterInternal[]).filter(
+            device.holdingRegs.config = (this.config.holdingRegs as Modbus.RegisterInternal[]).filter(
                 e => e.poll && e.deviceId === deviceId,
             );
 
@@ -1179,16 +1170,16 @@ export default class ModbusAdapter extends Adapter {
             if (options.config.slave) {
                 device.disInputs.fullIds = this.config.disInputs
                     .filter(e => e.deviceId === deviceId)
-                    .map(e => (e as RegisterInternal).fullId);
+                    .map(e => (e as Modbus.RegisterInternal).fullId);
                 device.coils.fullIds = this.config.coils
                     .filter(e => e.deviceId === deviceId)
-                    .map(e => (e as RegisterInternal).fullId);
+                    .map(e => (e as Modbus.RegisterInternal).fullId);
                 device.inputRegs.fullIds = this.config.inputRegs
-                    .filter(e => (e as RegisterInternal).deviceId === deviceId)
-                    .map(e => (e as RegisterInternal).fullId);
+                    .filter(e => (e as Modbus.RegisterInternal).deviceId === deviceId)
+                    .map(e => (e as Modbus.RegisterInternal).fullId);
                 device.holdingRegs.fullIds = this.config.holdingRegs
                     .filter(e => e.deviceId === deviceId)
-                    .map(e => (e as RegisterInternal).fullId);
+                    .map(e => (e as Modbus.RegisterInternal).fullId);
             }
 
             if (!options.config.multiDeviceId) {

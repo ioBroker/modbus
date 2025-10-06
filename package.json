@@ -53,7 +53,7 @@
   "scripts": {
     "prepublishOnly": "npm run build",
     "lint": "eslint -c eslint.config.mjs",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node tasks",
     "release": "release-script",
     "release-patch": "release-script patch --yes",
     "release-minor": "release-script minor --yes",
