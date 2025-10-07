@@ -213,6 +213,14 @@ export interface ModbusParametersTyped extends ModbusParameters {
     port: number | string;
     /** TCP host if type is 'tcp', 'tcprtu' or 'tcp-ssl and master */
     host: string;
+    /** Private key for SSL connection if type is 'tcp-ssl' */
+    certPrivate: string;
+    /** Public certificate for SSL connection if type is 'tcp-ssl' */
+    certPublic: string;
+    /** Chained certificate for SSL connection if type is 'tcp-ssl' */
+    certChained: string;
+    /** Allow self-signed certificates for SSL connection if type is 'tcp-ssl' */
+    sslAllowSelfSigned: boolean;
 
     /** Serial port name if type is 'serial' */
     comName: string;
@@ -228,25 +236,30 @@ export interface ModbusParametersTyped extends ModbusParameters {
     /** Default device ID */
     deviceId: number | string | null;
 
-    /** Timeout of one read/write cycle in ms */
-    timeout: number | string;
-
-    /** Poll interval in ms (for master) */
-    poll: number | string;
-    /** Reconnect interval in ms (for master) */
-    recon: number | string;
-    /** Keep alive interval in ms (for master and tcp) */
-    keepAliveInterval: number | string;
     /** Maximum number of registers to read in one block (for master) */
     maxBlock: number | string;
     /** Maximum number of boolean registers to read in one block (for master) */
     maxBoolBlock: number | string;
     /** Use multiple device IDs (for master) */
     multiDeviceId: boolean | 'true';
+
+    /** Timeout of one read/write cycle in ms */
+    timeout: number | string;
+    /** Poll interval in ms (for master) */
+    poll: number | string;
+    /** Reconnect interval in ms (for master) */
+    recon: number | string;
+    /** Keep alive interval in ms (for master and tcp) */
+    keepAliveInterval: number | string;
     /** Pulse time for coils in ms (for master and write) */
     pulseTime: number | string;
     /** Wait time between two requests in ms (for master) */
     waitTime: number | string;
+
+    /** Interval in ms to check for values to write (for master and write) */
+    writeInterval: number | string;
+    /** Interval in ms to read registers (for master and read) */
+    readInterval: number | string;
 
     /** Offset for discrete inputs. Default 10001 */
     disInputsOffset: number | string;
@@ -274,33 +287,20 @@ export interface ModbusParametersTyped extends ModbusParameters {
     preserveDotsInId: boolean | 'true';
     /** No register type in name if `true` or channel name as string */
     registerTypeInName?: boolean | string;
+    /** Do not round address to next word for registers with len > 1 */
+    doNotRoundAddressToWord: boolean | 'true';
 
     /** Number of digits after comma to round the value. 0 means integer */
     round: number | string;
     /** If alwaysUpdate is true, the value will be written even if it is the same as before */
     alwaysUpdate: boolean;
-    /** Do not round address to next word for registers with len > 1 */
-    doNotRoundAddressToWord: boolean | 'true';
     /** Do not use WriteMultipleRegisters (FC16) function for writing holding registers */
     doNotUseWriteMultipleRegisters: boolean | 'true';
     /** Only use WriteMultipleRegisters (FC16) function for writing holding registers */
     onlyUseWriteMultipleRegisters: boolean | 'true';
 
-    /** Interval in ms to check for values to write (for master and write) */
-    writeInterval: number | string;
-    /** Interval in ms to read registers (for master and read) */
-    readInterval: number | string;
     /** Disable logging of errors and info */
     disableLogging: boolean;
-
-    /** Private key for SSL connection if type is 'tcp-ssl' */
-    certPrivate: string;
-    /** Public certificate for SSL connection if type is 'tcp-ssl' */
-    certPublic: string;
-    /** Chained certificate for SSL connection if type is 'tcp-ssl' */
-    certChained: string;
-    /** Allow self-signed certificates for SSL connection if type is 'tcp-ssl' */
-    sslAllowSelfSigned: boolean;
 }
 
 export interface ModbusAdapterConfig extends ioBroker.AdapterConfig {
