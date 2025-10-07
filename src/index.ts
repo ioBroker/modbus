@@ -854,7 +854,7 @@ export default class ModbusAdapter extends Adapter {
                     if (localOptions.multiDeviceId) {
                         config[i].id = `${localOptions.registerTypeInName}.${deviceId}.`;
                     } else {
-                        config[i].id = localOptions.registerTypeInName;
+                        config[i].id = `${localOptions.registerTypeInName}.`;
                     }
                 }
             } else {
