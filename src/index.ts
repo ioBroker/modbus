@@ -224,6 +224,12 @@ export default class ModbusAdapter extends Adapter {
                     }
                 }
 
+                // @ts-expect-error backwards compatibility
+                if (this.config.params.pulsetime !== undefined && this.config.params.pulseTime === undefined) {
+                    // @ts-expect-error backwards compatibility
+                    this.config.params.pulseTime = this.config.params.pulsetime;
+                }
+
                 try {
                     import('serialport')
                         .then(s => {
@@ -779,6 +785,7 @@ export default class ModbusAdapter extends Adapter {
             maxBlock?: number;
             maxBoolBlock?: number;
             doNotIncludeAdrInId: boolean;
+            removeUnderscorePrefix: boolean;
             preserveDotsInId: boolean;
         },
     ): void {
@@ -839,9 +846,21 @@ export default class ModbusAdapter extends Adapter {
                     // config[i].id += config[i].name ? config[i].name.replace(/\./g, '_').replace(/\s/g, '_') : '';
 
                     // But because of breaking change
-                    config[i].id += config[i].name ? `_${config[i].name.replace(/\./g, '_').replace(/\s/g, '_')}` : '';
+                    if (localOptions.removeUnderscorePrefix) {
+                        config[i].id += config[i].name?.replace(/\./g, '_').replace(/\s/g, '_') || '';
+                    } else {
+                        config[i].id += config[i].name
+                            ? `_${config[i].name.replace(/\./g, '_').replace(/\s/g, '_')}`
+                            : '';
+                    }
                 } else {
-                    config[i].id += config[i].name ? `_${config[i].name.replace(/\./g, '_').replace(/\s/g, '_')}` : '';
+                    if (localOptions.removeUnderscorePrefix) {
+                        config[i].id += config[i].name?.replace(/\./g, '_').replace(/\s/g, '_') || '';
+                    } else {
+                        config[i].id += config[i].name
+                            ? `_${config[i].name.replace(/\./g, '_').replace(/\s/g, '_')}`
+                            : '';
+                    }
                 }
             }
             if (config[i].id.endsWith('.')) {
@@ -1053,6 +1072,7 @@ export default class ModbusAdapter extends Adapter {
             maxBoolBlock?: number;
             doNotIncludeAdrInId: boolean;
             preserveDotsInId: boolean;
+            removeUnderscorePrefix: boolean;
         } = {
             multiDeviceId: options.config.multiDeviceId,
             showAliases: params.showAliases === true || params.showAliases === 'true',
@@ -1063,6 +1083,7 @@ export default class ModbusAdapter extends Adapter {
             maxBoolBlock: options.config.maxBoolBlock,
             doNotIncludeAdrInId: params.doNotIncludeAdrInId === true || params.doNotIncludeAdrInId === 'true',
             preserveDotsInId: params.preserveDotsInId === true || params.preserveDotsInId === 'true',
+            removeUnderscorePrefix: params.removeUnderscorePrefix === true || params.removeUnderscorePrefix === 'true',
         };
 
         const oldObjects = await this.getForeignObjects(`${this.namespace}.*`);

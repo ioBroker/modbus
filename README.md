@@ -83,6 +83,9 @@ There are some programs in folder `test` to test the TCP communication:
 
 ## Changelog
 
+### **WORK IN PROGRESS**
+- (@GermanBluefox) Added `removeUnderscorePrefix` parameter
+
 ### 7.0.5 (2025-10-06)
 
 - (bluefox) initial commit

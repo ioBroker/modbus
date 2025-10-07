@@ -1,3 +1,6 @@
+/** Definitions for Modbus adapter for ioBroker */
+
+/** Data types for registers */
 export type RegisterEntryType =
     | ''
     | 'string'
@@ -32,6 +35,7 @@ export type RegisterEntryType =
     | 'doublebe'
     | 'doublele';
 
+/** Definition of one register */
 export interface Register {
     address: number;
     _address: string | number;
@@ -179,6 +183,7 @@ export interface ModbusParameters {
     showAliases?: true | 'true';
     directAddresses?: boolean | 'true';
     doNotIncludeAdrInId?: boolean | 'true';
+    removeUnderscorePrefix?: boolean | 'true';
     preserveDotsInId?: boolean | 'true';
     round?: number | string;
     alwaysUpdate?: boolean;
@@ -195,49 +200,101 @@ export interface ModbusParameters {
 }
 
 export interface ModbusParametersTyped extends ModbusParameters {
-    type: ModbusTransport; // default tcp
-    bind: string;
-    port: number | string;
-    comName: string;
-    baudRate: number;
-    dataBits: 5 | 6 | 7 | 8 | string;
-    stopBits: 1 | 2 | string;
-    parity: 'none' | 'even' | 'mark' | 'odd' | 'space';
-    deviceId: number | string | null;
-    timeout: number | string;
+    /** Slave (1) or Master (0) */
     slave: '0' | '1'; // default master
+    /** Transport type */
+    type: ModbusTransport; // default tcp
+
+    /** TCP IP bind (for slave) or host (for master) address */
+    bind: string;
+    /** TCP port if type is 'tcp', 'tcprtu' or 'tcp-ssl */
+    port: number | string;
+
+    /** Serial port name if type is 'serial' */
+    comName: string;
+    /** Serial baud rate if type is 'serial' */
+    baudRate: number;
+    /** Serial data bits if type is 'serial' */
+    dataBits: 5 | 6 | 7 | 8 | string;
+    /** Serial stop bits if type is 'serial' */
+    stopBits: 1 | 2 | string;
+    /** Serial parity if type is 'serial' */
+    parity: 'none' | 'even' | 'mark' | 'odd' | 'space';
+
+    /** Default device ID */
+    deviceId: number | string | null;
+
+    /** Timeout of one read/write cycle in ms */
+    timeout: number | string;
+    /** Poll interval in ms (for master) */
     poll: number | string;
+    /** Reconnect interval in ms (for master) */
     recon: number | string;
+    /** Keep alive interval in ms (for master and tcp) */
     keepAliveInterval: number | string;
+    /** Maximum number of registers to read in one block (for master) */
     maxBlock: number | string;
+    /** Maximum number of boolean registers to read in one block (for master) */
     maxBoolBlock: number | string;
+    /** Use multiple device IDs (for master) */
     multiDeviceId: boolean | 'true';
+    /** Pulse time for coils in ms (for master and write) */
     pulseTime: number | string;
+    /** Wait time between two requests in ms (for master) */
     waitTime: number | string;
+
+    /** Offset for discrete inputs. Default 10001 */
     disInputsOffset: number | string;
+    /** Offset for coils. Default 00001 */
     coilsOffset: number | string;
+    /** Offset for input registers. Default 30001 */
     inputRegsOffset: number | string;
+    /** Offset for holding registers. Default 40001 */
     holdingRegsOffset: number | string;
+
+    /** Show aliases instead of addresses. If true, the address will be 40001 and not 0 */
     showAliases: true | 'true';
+    /** For binary registers */
     directAddresses: boolean | 'true';
+    /** Do not include the address in the ID. The name will be "_PV_consumption" and not "40001_PV_consumption". To remove leading "_" activate removeUnderscorePrefix attribute */
     doNotIncludeAdrInId: boolean | 'true';
+    /** If doNotIncludeAdrInId is true, remove the leading "_" */
+    removeUnderscorePrefix: boolean | 'true';
+    /** Preserve dots in ID, else they will be replaced with "_" */
     preserveDotsInId: boolean | 'true';
+    /** Number of digits after comma to round the value. 0 means integer */
     round: number | string;
+    /** If alwaysUpdate is true, the value will be written even if it is the same as before */
     alwaysUpdate: boolean;
+    /** Do not round address to next word for registers with len > 1 */
     doNotRoundAddressToWord: boolean | 'true';
+    /** Do not use WriteMultipleRegisters (FC16) function for writing holding registers */
     doNotUseWriteMultipleRegisters: boolean | 'true';
+    /** Only use WriteMultipleRegisters (FC16) function for writing holding registers */
     onlyUseWriteMultipleRegisters: boolean | 'true';
+
+    /** Interval in ms to check for values to write (for master and write) */
     writeInterval: number | string;
+    /** Interval in ms to read registers (for master and read) */
     readInterval: number | string;
+    /** Disable logging of errors and info */
     disableLogging: boolean;
+
+    /** Private key for SSL connection if type is 'tcp-ssl' */
     certPrivate: string;
+    /** Public certificate for SSL connection if type is 'tcp-ssl' */
     certPublic: string;
+    /** Chained certificate for SSL connection if type is 'tcp-ssl' */
     certChained: string;
+    /** Allow self-signed certificates for SSL connection if type is 'tcp-ssl' */
     sslAllowSelfSigned: true;
 }
 
 export interface ModbusAdapterConfig extends ioBroker.AdapterConfig {
+    /** Configuration of the adapter */
     params: ModbusParametersTyped;
+
+    /** Definition of the registers */
     disInputs: Register[];
     coils: Register[];
     inputRegs: Register[];
