@@ -131,8 +131,7 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
-
-### **WORK IN PROGRESS**
+### 7.0.16 (2025-10-07)
 
 - (@GermanBluefox) Added `host` parameter for master connection
 
