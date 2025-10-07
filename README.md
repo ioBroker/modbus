@@ -1,10 +1,11 @@
 # @iobroker/modbus
 
-This is a library that allows you to implement ioBroker Adapter that communicates via modbus with some device.
+This is a library that allows you to implement ioBroker Adapter that communicates via ModBus with devices.
 
-It could accept TSV file as a configuration.
+It could accept TSV file as a configuration. TSV files could be created as export in `ioBroker.modbus` adapter.
 
 ## Usage
+You can find an example [here](https://github.com/ioBroker/ioBroker.modbus-solaredge).
 
 ### With constant TSV file (TypeScript)
 
@@ -45,6 +46,7 @@ if (require.main !== module) {
 }
 ```
 ### With constant TSV file (JavaScript)
+
 ```javascript
 const IoBrokerModbus = require ('@iobroker/modbus');
 const { readFileSync } = require('node:fs');
