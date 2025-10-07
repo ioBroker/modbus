@@ -771,6 +771,11 @@ export class Master {
                 this.#reconnect();
             }
         } else {
+            if (this.nextPoll) {
+                this.adapter.clearTimeout(this.nextPoll);
+                this.nextPoll = null;
+            }
+
             this.nextPoll = this.adapter.setTimeout(() => {
                 this.nextPoll = null;
                 this.#poll().catch(e => this.adapter.log.error(`Cannot poll: ${e}`));
