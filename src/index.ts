@@ -176,6 +176,12 @@ export default class ModbusAdapter extends Adapter {
             ...options,
             name: adapterName,
             ready: () => {
+                // @ts-expect-error backwards compatibility
+                if (this.config.params.pulsetime !== undefined && this.config.params.pulseTime === undefined) {
+                    // @ts-expect-error backwards compatibility
+                    this.config.params.pulseTime = this.config.params.pulsetime;
+                }
+
                 // Merge configuration
                 this.config.params = {
                     ...defaultParams,
@@ -222,12 +228,6 @@ export default class ModbusAdapter extends Adapter {
                             throw new Error(`Cannot find TSV file from "${registersOrParameterName} => ${fileName}`);
                         }
                     }
-                }
-
-                // @ts-expect-error backwards compatibility
-                if (this.config.params.pulsetime !== undefined && this.config.params.pulseTime === undefined) {
-                    // @ts-expect-error backwards compatibility
-                    this.config.params.pulseTime = this.config.params.pulsetime;
                 }
 
                 try {
