@@ -185,7 +185,7 @@ export interface ModbusParameters {
     doNotIncludeAdrInId?: boolean | 'true';
     removeUnderscorePrefix?: boolean | 'true';
     preserveDotsInId?: boolean | 'true';
-    noRegisterTypeInName?: boolean | 'true';
+    registerTypeInName?: boolean | string;
     round?: number | string;
     alwaysUpdate?: boolean;
     doNotRoundAddressToWord?: boolean | 'true';
@@ -269,8 +269,8 @@ export interface ModbusParametersTyped extends ModbusParameters {
     removeUnderscorePrefix: boolean | 'true';
     /** Preserve dots in ID, else they will be replaced with "_" */
     preserveDotsInId: boolean | 'true';
-    /** No register type in name */
-    noRegisterTypeInName?: boolean | 'true';
+    /** No register type in name if `true` or channel name as string */
+    registerTypeInName?: boolean | string;
 
     /** Number of digits after comma to round the value. 0 means integer */
     round: number | string;
