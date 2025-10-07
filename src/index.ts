@@ -361,13 +361,13 @@ export default class ModbusAdapter extends Adapter {
         return statSync(path).isCharacterDevice();
     }
 
-    listSerial(ports: PortInfo[]): { path: string }[] | undefined {
+    listSerial(ports: PortInfo[]): { label: string; value: string }[] | undefined {
         ports ||= [];
 
         // Filter out the devices that aren't serial ports
         const devDirName = '/dev';
 
-        let result: { path: string }[] | undefined;
+        let result: { label: string; value: string }[] | undefined;
         try {
             this.log.info(`Verify ${JSON.stringify(ports)}`);
             result = readdirSync(devDirName)
@@ -378,13 +378,13 @@ export default class ModbusAdapter extends Adapter {
                         ports.push({ path: port } as PortInfo);
                     }
 
-                    return { path: port };
+                    return { label: port, value: port };
                 });
         } catch (e) {
             if (require('node:os').platform() !== 'win32') {
                 this.log.error(`Cannot read "${devDirName}": ${e}`);
             }
-            result = ports;
+            result = ports.map(port => ({ label: port.path, value: port.path }));
         }
         return result;
     }
