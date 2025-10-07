@@ -124,7 +124,7 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
-### **WORK IN PROGRESS**
+### 7.0.15 (2025-10-07)
 - (@GermanBluefox) Added `host` parameter for master connection
 
 ### 7.0.13 (2025-10-07)
