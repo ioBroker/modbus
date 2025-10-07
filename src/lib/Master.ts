@@ -1,10 +1,10 @@
 import type { DeviceMasterOption, MasterDevice, Options, RegisterType } from '../types';
 import { extractValue, writeValue } from './common';
-import type { ModbusReadResultBinary } from './jsmodbus/modbus-client-core';
-import ModbusClientSerial from './jsmodbus/transports/modbus-client-serial';
-import ModbusClientTcp from './jsmodbus/transports/modbus-client-tcp';
-import ModbusClientTcpRtu from './jsmodbus/transports/modbus-client-tcp-rtu';
-import ModbusClientTcpSsl from './jsmodbus/transports/modbus-client-tcp-ssl';
+import type { ModbusReadResultBinary } from './modbus/modbus-client-core';
+import ModbusClientSerial from './modbus/transports/modbus-client-serial';
+import ModbusClientTcp from './modbus/transports/modbus-client-tcp';
+import ModbusClientTcpRtu from './modbus/transports/modbus-client-tcp-rtu';
+import ModbusClientTcpSsl from './modbus/transports/modbus-client-tcp-ssl';
 import { createLoggingWrapper } from './loggingUtils';
 
 export class Master {

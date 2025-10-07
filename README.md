@@ -90,7 +90,7 @@ There are some programs in folder `test` to test the TCP communication:
 - (@GermanBluefox) Added `removeUnderscorePrefix` parameter
 - (@GermanBluefox) Added `noRegisterTypeInName` parameter
 - (@GermanBluefox) Allowed to set custom channel name
-
+xxx
 ### 7.0.5 (2025-10-06)
 
 - (bluefox) initial commit

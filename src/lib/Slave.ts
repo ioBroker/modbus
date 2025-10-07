@@ -1,6 +1,6 @@
 import { extractValue, writeValue } from './common';
-import ModbusServerSerial from './jsmodbus/transports/modbus-server-serial';
-import ModbusServerTcp from './jsmodbus/transports/modbus-server-tcp';
+import ModbusServerSerial from './modbus/transports/modbus-server-serial';
+import ModbusServerTcp from './modbus/transports/modbus-server-tcp';
 import { createLoggingWrapper } from './loggingUtils';
 import type { SlaveDevice, Options, DeviceSlaveOption, RegisterType } from '../types';
 
