@@ -86,7 +86,7 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
-### 7.0.8 (2025-10-07)
+### **WORK IN PROGRESS**
 - (@GermanBluefox) Added `removeUnderscorePrefix` parameter
 - (@GermanBluefox) Added `noRegisterTypeInName` parameter
 
