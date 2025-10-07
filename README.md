@@ -6,7 +6,7 @@ It could accept TSV file as a configuration.
 
 ## Usage
 
-### With constant TSV file
+### With constant TSV file (TypeScript)
 
 ```typescript
 import ModbusTemplate, { tsv2registers } from '@iobroker/modbus';
@@ -18,7 +18,20 @@ export class ModbusAdapter extends ModbusTemplate {
     public constructor(options: Partial<AdapterOptions> = {}) {
         const holdingRegs = tsv2registers('holdingRegs', `${__dirname}/../data/holdingRegs.tsv`);
 
-        super(adapterName, options, undefined, { holdingRegs });
+        super(
+            adapterName,
+            options, {
+                // Do not show addresses in the object IDs
+                doNotIncludeAdrInId: true,
+                // Remove the leading "_" in the names
+                removeUnderscorePrefix: true,
+                // Do not show aliases, because we don't want to see addresses
+                showAliases: false,
+                // Replace holdingRegister (and so on) with "data" in the object names
+                registerTypeInName: 'data',
+            },
+            { holdingRegs },
+        );
     }
 }
 
@@ -26,6 +39,29 @@ export class ModbusAdapter extends ModbusTemplate {
 if (require.main !== module) {
     // Export the constructor in compact mode
     module.exports = (options: Partial<AdapterOptions> | undefined) => new ModbusAdapter(options);
+} else {
+    // otherwise start the instance directly
+    (() => new ModbusAdapter())();
+}
+```
+### With constant TSV file (JavaScript)
+```javascript
+const IoBrokerModbus = require ('@iobroker/modbus');
+const { readFileSync } = require('node:fs');
+const adapterName = JSON.parse(readFileSync(`${__dirname}/../io-package.json`, 'utf8')).common.name;
+
+export class ModbusAdapter extends ModbusTemplate {
+    public constructor(options) {
+        const holdingRegs = tsv2registers('holdingRegs', `${__dirname}/../data/holdingRegs.tsv`);
+
+        super(adapterName, options, undefined, { holdingRegs });
+    }
+}
+
+// If started as allInOne mode => return function to create instance
+if (require.main !== module) {
+    // Export the constructor in compact mode
+    module.exports = options => new ModbusAdapter(options);
 } else {
     // otherwise start the instance directly
     (() => new ModbusAdapter())();
