@@ -185,6 +185,7 @@ export interface ModbusParameters {
     doNotIncludeAdrInId?: boolean | 'true';
     removeUnderscorePrefix?: boolean | 'true';
     preserveDotsInId?: boolean | 'true';
+    noRegisterTypeInName?: boolean | 'true';
     round?: number | string;
     alwaysUpdate?: boolean;
     doNotRoundAddressToWord?: boolean | 'true';
@@ -262,7 +263,7 @@ export interface ModbusParametersTyped extends ModbusParameters {
      * The name will be "_PV_consumption" and not "40001_PV_consumption".
      * To remove leading "_" activate removeUnderscorePrefix attribute.
      * This is only active if `showAliases` is false.
-     **/
+     */
     doNotIncludeAdrInId: boolean | 'true';
     /** If doNotIncludeAdrInId is true, remove the leading "_" */
     removeUnderscorePrefix: boolean | 'true';
