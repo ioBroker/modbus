@@ -180,7 +180,7 @@ export interface ModbusParameters {
     coilsOffset?: number | string;
     inputRegsOffset?: number | string;
     holdingRegsOffset?: number | string;
-    showAliases?: true | 'true';
+    showAliases?: boolean | 'true';
     directAddresses?: boolean | 'true';
     doNotIncludeAdrInId?: boolean | 'true';
     removeUnderscorePrefix?: boolean | 'true';
@@ -196,7 +196,7 @@ export interface ModbusParameters {
     certPrivate?: string;
     certPublic?: string;
     certChained?: string;
-    sslAllowSelfSigned?: true;
+    sslAllowSelfSigned?: boolean;
 }
 
 export interface ModbusParametersTyped extends ModbusParameters {
@@ -226,6 +226,7 @@ export interface ModbusParametersTyped extends ModbusParameters {
 
     /** Timeout of one read/write cycle in ms */
     timeout: number | string;
+
     /** Poll interval in ms (for master) */
     poll: number | string;
     /** Reconnect interval in ms (for master) */
@@ -253,15 +254,23 @@ export interface ModbusParametersTyped extends ModbusParameters {
     holdingRegsOffset: number | string;
 
     /** Show aliases instead of addresses. If true, the address will be 40001 and not 0 */
-    showAliases: true | 'true';
+    showAliases: boolean | 'true';
     /** For binary registers */
     directAddresses: boolean | 'true';
-    /** Do not include the address in the ID. The name will be "_PV_consumption" and not "40001_PV_consumption". To remove leading "_" activate removeUnderscorePrefix attribute */
+    /**
+     * Do not include the address in the ID.
+     * The name will be "_PV_consumption" and not "40001_PV_consumption".
+     * To remove leading "_" activate removeUnderscorePrefix attribute.
+     * This is only active if `showAliases` is false.
+     **/
     doNotIncludeAdrInId: boolean | 'true';
     /** If doNotIncludeAdrInId is true, remove the leading "_" */
     removeUnderscorePrefix: boolean | 'true';
     /** Preserve dots in ID, else they will be replaced with "_" */
     preserveDotsInId: boolean | 'true';
+    /** No register type in name */
+    noRegisterTypeInName?: boolean | 'true';
+
     /** Number of digits after comma to round the value. 0 means integer */
     round: number | string;
     /** If alwaysUpdate is true, the value will be written even if it is the same as before */
@@ -287,7 +296,7 @@ export interface ModbusParametersTyped extends ModbusParameters {
     /** Chained certificate for SSL connection if type is 'tcp-ssl' */
     certChained: string;
     /** Allow self-signed certificates for SSL connection if type is 'tcp-ssl' */
-    sslAllowSelfSigned: true;
+    sslAllowSelfSigned: boolean;
 }
 
 export interface ModbusAdapterConfig extends ioBroker.AdapterConfig {

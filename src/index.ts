@@ -815,6 +815,7 @@ export default class ModbusAdapter extends Adapter {
             doNotIncludeAdrInId: boolean;
             removeUnderscorePrefix: boolean;
             preserveDotsInId: boolean;
+            noRegisterTypeInName: boolean;
         },
     ): void {
         for (let i = config.length - 1; i >= 0; i--) {
@@ -842,11 +843,18 @@ export default class ModbusAdapter extends Adapter {
             if (address < 0) {
                 continue;
             }
-
-            if (localOptions.multiDeviceId) {
-                config[i].id = `${regName}.${deviceId}.`;
+            if (!localOptions.noRegisterTypeInName) {
+                if (localOptions.multiDeviceId) {
+                    config[i].id = `${deviceId}.`;
+                } else {
+                    config[i].id = '';
+                }
             } else {
-                config[i].id = `${regName}.`;
+                if (localOptions.multiDeviceId) {
+                    config[i].id = `${regName}.${deviceId}.`;
+                } else {
+                    config[i].id = `${regName}.`;
+                }
             }
 
             if (localOptions.showAliases) {
@@ -1101,6 +1109,7 @@ export default class ModbusAdapter extends Adapter {
             doNotIncludeAdrInId: boolean;
             preserveDotsInId: boolean;
             removeUnderscorePrefix: boolean;
+            noRegisterTypeInName: boolean;
         } = {
             multiDeviceId: options.config.multiDeviceId,
             showAliases: params.showAliases === true || params.showAliases === 'true',
@@ -1112,6 +1121,7 @@ export default class ModbusAdapter extends Adapter {
             doNotIncludeAdrInId: params.doNotIncludeAdrInId === true || params.doNotIncludeAdrInId === 'true',
             preserveDotsInId: params.preserveDotsInId === true || params.preserveDotsInId === 'true',
             removeUnderscorePrefix: params.removeUnderscorePrefix === true || params.removeUnderscorePrefix === 'true',
+            noRegisterTypeInName: params.noRegisterTypeInName === true || params.noRegisterTypeInName === 'true',
         };
 
         const oldObjects = await this.getForeignObjects(`${this.namespace}.*`);
