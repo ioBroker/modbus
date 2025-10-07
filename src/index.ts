@@ -843,7 +843,7 @@ export default class ModbusAdapter extends Adapter {
             if (address < 0) {
                 continue;
             }
-            if (!localOptions.noRegisterTypeInName) {
+            if (localOptions.noRegisterTypeInName) {
                 if (localOptions.multiDeviceId) {
                     config[i].id = `${deviceId}.`;
                 } else {
