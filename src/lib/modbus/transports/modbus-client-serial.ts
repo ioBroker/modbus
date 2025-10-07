@@ -48,11 +48,10 @@ export default class ModbusClientSerial extends ModbusClientCore {
         this.serial = options.serial;
         void import('serialport').then(sp => {
             SerialPortClass = sp.SerialPort;
+
+            this.on('send', this.#onSend);
+            this.connect();
         });
-
-        this.on('send', this.#onSend);
-
-        this.connect();
     }
 
     #onOpen = (): void => {

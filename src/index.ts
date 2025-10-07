@@ -263,17 +263,7 @@ export default class ModbusAdapter extends Adapter {
                         }
                     }
                 }
-
-                try {
-                    import('serialport')
-                        .then(s => {
-                            serialPortList = s.SerialPort.list;
-                        })
-                        .catch(err => this.log.warn(`Serial is not available: ${err}`))
-                        .finally(() => this.main());
-                } catch (err) {
-                    this.log.warn(`Serial is not available: ${err}`);
-                }
+                this.main().catch(e => this.log.error(`Cannot start Modbus adapter: ${e as Error}`));
             },
             message: (obj: ioBroker.Message) => this.processMessage(obj),
             stateChange: async (id: string, state: ioBroker.State | null | undefined): Promise<void> => {
@@ -302,11 +292,19 @@ export default class ModbusAdapter extends Adapter {
         process.on('SIGINT', () => this.stopAdapter());
     }
 
-    processMessage(obj: ioBroker.Message): void {
+    async processMessage(obj: ioBroker.Message): Promise<void> {
         if (obj) {
             switch (obj.command) {
                 case 'listUart':
                     if (obj.callback) {
+                        if (!serialPortList) {
+                            try {
+                                const sModule = await import('serialport');
+                                serialPortList = sModule.SerialPort.list;
+                            } catch (err) {
+                                this.log.warn(`Serial is not available: ${err}`);
+                            }
+                        }
                         if (serialPortList) {
                             // read all found serial ports
                             serialPortList()
@@ -317,11 +315,21 @@ export default class ModbusAdapter extends Adapter {
                                 })
                                 .catch((err: Error) => {
                                     this.log.warn(`Can not get Serial port list: ${err}`);
-                                    this.sendTo(obj.from, obj.command, [{ path: 'Not available' }], obj.callback);
+                                    this.sendTo(
+                                        obj.from,
+                                        obj.command,
+                                        [{ label: 'Not available', value: 'Not available' }],
+                                        obj.callback,
+                                    );
                                 });
                         } else {
                             this.log.warn('Module serialport is not available');
-                            this.sendTo(obj.from, obj.command, [{ path: 'Not available' }], obj.callback);
+                            this.sendTo(
+                                obj.from,
+                                obj.command,
+                                [{ label: 'Not available', value: 'Not available' }],
+                                obj.callback,
+                            );
                         }
                     }
                     break;

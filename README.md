@@ -5,6 +5,7 @@ This is a library that allows you to implement ioBroker Adapter that communicate
 It could accept TSV file as a configuration. TSV files could be created as export in `ioBroker.modbus` adapter.
 
 ## Usage
+
 You can find an example [here](https://github.com/ioBroker/ioBroker.modbus-solaredge).
 
 ### With constant TSV file (TypeScript)
@@ -21,7 +22,8 @@ export class ModbusAdapter extends ModbusTemplate {
 
         super(
             adapterName,
-            options, {
+            options,
+            {
                 // Do not show addresses in the object IDs
                 doNotIncludeAdrInId: true,
                 // Remove the leading "_" in the names
@@ -45,6 +47,7 @@ if (require.main !== module) {
     (() => new ModbusAdapter())();
 }
 ```
+
 ### With constant TSV file (JavaScript)
 
 ```javascript
@@ -111,6 +114,10 @@ If the value of `deviceType` is `data/holdingRegs.tsv` or `data/holdingRegs` the
 
 If the value of `deviceType` is `data/m100.tsv` or `data/m100` the adapter will search for files `<adapterDirectory>/data/m100coils.tsv`, `<adapterDirectory>/data/m100disInputs.tsv`, `<adapterDirectory>/data/m100inputRegs.tsv`, `<adapterDirectory>/data/m100holdingRegs.tsv`
 
+## Serial port
+
+If you want to use serial port, you have to include `serialport` package into 'package.json' of your adapter, because `@iobroker/modbus` does not have this dependency by default.
+
 ## Test
 
 There are some programs in folder `test` to test the TCP communication:
@@ -124,10 +131,13 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
-### 7.0.15 (2025-10-07)
+
+### **WORK IN PROGRESS**
+
 - (@GermanBluefox) Added `host` parameter for master connection
 
 ### 7.0.13 (2025-10-07)
+
 - (@GermanBluefox) Added `removeUnderscorePrefix` parameter
 - (@GermanBluefox) Added `noRegisterTypeInName` parameter
 - (@GermanBluefox) Allowed to set custom channel name
