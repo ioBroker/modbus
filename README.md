@@ -69,9 +69,9 @@ In the second example the adapter will read from its configuration attribute `de
 - `<adapterDirectory>/<valueOfDeviceType>` - holding registers
 - or `<adapterDirectory>/<valueOfDeviceType without '.tsv'>inputRegs.tsv` - for input registers
 
-If the value of `deviceType` is `data/holdingRegs.tsv` the adapter will search for file `<adapterDirectory>/data/holdingRegs.tsv`.
+If the value of `deviceType` is `data/holdingRegs.tsv` or `data/holdingRegs` the adapter will search for file `<adapterDirectory>/data/holdingRegs.tsv`.
 
-If the value of `deviceType` is `data/m100.tsv` the adapter will search for files `<adapterDirectory>/data/m100coils.tsv`, `<adapterDirectory>/data/m100disInputs.tsv`, `<adapterDirectory>/data/m100inputRegs.tsv`, `<adapterDirectory>/data/m100holdingRegs.tsv`
+If the value of `deviceType` is `data/m100.tsv` or `data/m100` the adapter will search for files `<adapterDirectory>/data/m100coils.tsv`, `<adapterDirectory>/data/m100disInputs.tsv`, `<adapterDirectory>/data/m100inputRegs.tsv`, `<adapterDirectory>/data/m100holdingRegs.tsv`
 
 ## Test
 
