@@ -206,9 +206,17 @@ export default class ModbusAdapter extends Adapter {
                         this.config.disInputs ||= [];
                         this.config.inputRegs = holdingRegs;
                         this.config.holdingRegs ||= [];
+                    } else if (existsSync(join(adapterRootDirectory, `${fileName}.tsv`))) {
+                        // It is only one file, so apply to holdings register
+                        const holdingRegs = tsv2registers('holdingRegs', join(adapterRootDirectory, `${fileName}.tsv`));
+                        this.config.coils ||= [];
+                        this.config.disInputs ||= [];
+                        this.config.inputRegs = holdingRegs;
+                        this.config.holdingRegs ||= [];
                     } else {
                         const [name, ext] = fileName.split('.');
                         if (
+                            ext &&
                             ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].find(type =>
                                 existsSync(join(adapterRootDirectory, `${name + type}.${ext}`)),
                             )
@@ -221,7 +229,27 @@ export default class ModbusAdapter extends Adapter {
                             ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].forEach(type => {
                                 if (existsSync(join(adapterRootDirectory, `${name + type}.${ext}`))) {
                                     this.config[type as 'coils' | 'disInputs' | 'inputRegs' | 'holdingRegs'] ||=
-                                        tsv2registers('holdingRegs', join(adapterRootDirectory, fileName));
+                                        tsv2registers(
+                                            'holdingRegs',
+                                            join(adapterRootDirectory, `${name + type}.${ext}`),
+                                        );
+                                }
+                            });
+                        } else if (
+                            !ext &&
+                            ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].find(type =>
+                                existsSync(join(adapterRootDirectory, `${name + type}.tsv`)),
+                            )
+                        ) {
+                            this.config.coils ||= [];
+                            this.config.disInputs ||= [];
+                            this.config.inputRegs ||= [];
+                            this.config.holdingRegs ||= [];
+                            // We have multiple definitions
+                            ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].forEach(type => {
+                                if (existsSync(join(adapterRootDirectory, `${name + type}.tsv`))) {
+                                    this.config[type as 'coils' | 'disInputs' | 'inputRegs' | 'holdingRegs'] ||=
+                                        tsv2registers('holdingRegs', join(adapterRootDirectory, `${name + type}.tsv`));
                                 }
                             });
                         } else {
