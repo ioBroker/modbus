@@ -18,6 +18,7 @@ function sortByAddress(a: Modbus.Register, b: Modbus.Register): 1 | 0 | -1 {
 const defaultParams = {
     type: 'tcp',
     bind: '127.0.0.1',
+    host: '127.0.0.1',
     port: 502,
     comName: '',
     baudRate: 9600,
@@ -180,6 +181,11 @@ export default class ModbusAdapter extends Adapter {
                 if (this.config.params.pulsetime !== undefined && this.config.params.pulseTime === undefined) {
                     // @ts-expect-error backwards compatibility
                     this.config.params.pulseTime = this.config.params.pulsetime;
+                }
+
+                // Backwards compatibility
+                if (this.config.params.slave === '0' && !this.config.params.host && this.config.params.bind) {
+                    this.config.params.host = this.config.params.bind;
                 }
 
                 // Merge configuration
@@ -542,7 +548,7 @@ export default class ModbusAdapter extends Adapter {
         if (params.type === 'tcp' || params.type === 'tcprtu' || params.type === 'tcp-ssl') {
             options.config.tcp = {
                 port: parseInt(params.port as string, 10) || 502,
-                bind: params.bind,
+                ip: params.slave === '1' ? params.bind : params.host,
             };
 
             // Add SSL configuration for tcp-ssl type

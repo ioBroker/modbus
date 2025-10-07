@@ -169,7 +169,7 @@ export default class Slave {
                     logger: logWrapper,
                     tcp: {
                         port: this.options.config.tcp.port || 502,
-                        hostname: this.options.config.tcp.bind || '127.0.0.1',
+                        hostname: this.options.config.tcp.ip || '0.0.0.0',
                     },
                     responseDelay: 100,
                     coils: Buffer.alloc(

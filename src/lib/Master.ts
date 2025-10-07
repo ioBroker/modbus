@@ -48,7 +48,7 @@ export class Master {
 
         if (options.config.type === 'tcp') {
             const tcp = options.config.tcp;
-            if (!tcp || !tcp.bind || tcp.bind === '0.0.0.0') {
+            if (!tcp || !tcp.ip || tcp.ip === '0.0.0.0') {
                 adapter.log.error('IP address is not defined');
                 return;
             }
@@ -56,7 +56,7 @@ export class Master {
                 const logWrapper = createLoggingWrapper(adapter.log, options.config.disableLogging);
                 this.modbusClient = new ModbusClientTcp({
                     tcp: {
-                        host: tcp.bind,
+                        host: tcp.ip,
                         port: tcp.port || 502,
                         autoReconnect: false,
                     },
@@ -65,11 +65,11 @@ export class Master {
                     unitId: options.config.defaultDeviceId,
                 });
             } catch (e) {
-                adapter.log.error(`Cannot connect to "${tcp.bind}:${tcp.port || 502}": ${e}`);
+                adapter.log.error(`Cannot connect to "${tcp.ip}:${tcp.port || 502}": ${e}`);
             }
         } else if (options.config.type === 'tcp-ssl') {
             const tcp = options.config.tcp;
-            if (!tcp || !tcp.bind || tcp.bind === '0.0.0.0') {
+            if (!tcp?.ip || tcp.ip === '0.0.0.0') {
                 adapter.log.error('IP address is not defined');
                 return;
             }
@@ -94,7 +94,7 @@ export class Master {
 
                 this.modbusClient = new ModbusClientTcpSsl({
                     tcp: {
-                        host: tcp.bind,
+                        host: tcp.ip,
                         port: tcp.port || 502,
                         autoReconnect: false,
                     },
@@ -104,11 +104,11 @@ export class Master {
                     unitId: options.config.defaultDeviceId,
                 });
             } catch (e) {
-                adapter.log.error(`Cannot connect to SSL "${tcp.bind}:${tcp.port || 502}": ${e}`);
+                adapter.log.error(`Cannot connect to SSL "${tcp.ip}:${tcp.port || 502}": ${e}`);
             }
         } else if (options.config.type === 'tcprtu') {
             const tcp = options.config.tcp;
-            if (!tcp || !tcp.bind || tcp.bind === '0.0.0.0') {
+            if (!tcp?.ip || tcp.ip === '0.0.0.0') {
                 adapter.log.error('IP address is not defined');
                 return;
             }
@@ -116,7 +116,7 @@ export class Master {
                 const logWrapper = createLoggingWrapper(adapter.log, options.config.disableLogging);
                 this.modbusClient = new ModbusClientTcpRtu({
                     tcp: {
-                        host: tcp.bind,
+                        host: tcp.ip,
                         port: tcp.port || 502,
                         autoReconnect: false,
                     },
@@ -125,7 +125,7 @@ export class Master {
                     unitId: options.config.defaultDeviceId,
                 });
             } catch (e) {
-                adapter.log.error(`Cannot connect to "${tcp.bind}:${tcp.port || 502}": ${e}`);
+                adapter.log.error(`Cannot connect to "${tcp.ip}:${tcp.port || 502}": ${e}`);
             }
         } else if (options.config.type === 'serial') {
             const serial = options.config.serial;
@@ -165,7 +165,7 @@ export class Master {
             .on('connect', () => {
                 if (!this.connected) {
                     if (options.config.type === 'tcp') {
-                        adapter.log.info(`Connected to slave ${options.config.tcp?.bind}`);
+                        adapter.log.info(`Connected to slave ${options.config.tcp?.ip}`);
                     } else {
                         adapter.log.info('Connected to slave');
                     }
@@ -253,7 +253,7 @@ export class Master {
 
         if (this.connected) {
             if (this.options.config.tcp) {
-                this.adapter.log.info(`Disconnected from slave ${this.options.config.tcp?.bind}`);
+                this.adapter.log.info(`Disconnected from slave ${this.options.config.tcp?.ip}`);
             } else {
                 this.adapter.log.info('Disconnected from slave');
             }

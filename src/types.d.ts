@@ -132,7 +132,7 @@ export interface Options {
 
         tcp?: {
             port: number;
-            bind?: string;
+            ip?: string;
         };
 
         ssl?: {
@@ -159,6 +159,7 @@ export interface Options {
 export interface ModbusParameters {
     type?: ModbusTransport; // default tcp
     bind?: string;
+    host?: string;
     port?: number | string;
     comName?: string;
     baudRate?: number;
@@ -206,10 +207,12 @@ export interface ModbusParametersTyped extends ModbusParameters {
     /** Transport type */
     type: ModbusTransport; // default tcp
 
-    /** TCP IP bind (for slave) or host (for master) address */
+    /** TCP IP bind  is 'tcp', 'tcprtu' or 'tcp-ssl and slave */
     bind: string;
     /** TCP port if type is 'tcp', 'tcprtu' or 'tcp-ssl */
     port: number | string;
+    /** TCP host if type is 'tcp', 'tcprtu' or 'tcp-ssl and master */
+    host: string;
 
     /** Serial port name if type is 'serial' */
     comName: string;
