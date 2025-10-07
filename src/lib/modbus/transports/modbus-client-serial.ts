@@ -20,6 +20,7 @@ export default class ModbusClientSerial extends ModbusClientCore {
     private buffer = Buffer.alloc(0);
     private serialPort: SerialPort.SerialPort | null = null;
     private readonly unitId: number;
+    private ready: Promise<void>;
 
     private readonly serial: {
         portName: string;
@@ -46,12 +47,13 @@ export default class ModbusClientSerial extends ModbusClientCore {
         this.unitId = options.unitId || 1;
 
         this.serial = options.serial;
-        void import('serialport').then(sp => {
-            SerialPortClass = sp.SerialPort;
+        this.ready = import('serialport')
+            .then(sp => {
+                SerialPortClass = sp.SerialPort;
 
-            this.on('send', this.#onSend);
-            this.connect();
-        });
+                this.on('send', this.#onSend);
+            })
+            .then(() => this.connect());
     }
 
     #onOpen = (): void => {
@@ -148,36 +150,38 @@ export default class ModbusClientSerial extends ModbusClientCore {
     connect(): void {
         this.setState('connect');
 
-        if (!this.serialPort) {
-            const serial = this.serial;
+        void this.ready.then(() => {
+            if (!this.serialPort) {
+                const serial = this.serial;
 
-            if (!serial.portName) {
-                throw new Error('No portname.');
+                if (!serial.portName) {
+                    throw new Error('No portname.');
+                }
+
+                serial.baudRate ||= 9600; // the most are working with 9600
+                serial.dataBits ||= 8;
+                serial.stopBits ||= 1;
+                serial.parity ||= 'none';
+                // TODO: flowControl - ['xon', 'xoff', 'xany', 'rtscts']
+
+                // TODO: settings - ['brk', 'cts', 'dtr', 'dts', 'rts']
+
+                this.log.debug(`connect to serial ${serial.portName} with ${serial.baudRate}`);
+
+                this.serialPort = new SerialPortClass({
+                    path: serial.portName,
+                    baudRate: serial.baudRate,
+                    parity: serial.parity,
+                    dataBits: serial.dataBits,
+                    stopBits: serial.stopBits,
+                });
+
+                this.serialPort!.on('open', this.#onOpen);
+                this.serialPort!.on('close', this.#onClose);
+                this.serialPort!.on('data', this.#onData);
+                this.serialPort!.on('error', this.#onError);
             }
-
-            serial.baudRate ||= 9600; // the most are working with 9600
-            serial.dataBits ||= 8;
-            serial.stopBits ||= 1;
-            serial.parity ||= 'none';
-            // TODO: flowControl - ['xon', 'xoff', 'xany', 'rtscts']
-
-            // TODO: settings - ['brk', 'cts', 'dtr', 'dts', 'rts']
-
-            this.log.debug(`connect to serial ${serial.portName} with ${serial.baudRate}`);
-
-            this.serialPort = new SerialPortClass({
-                path: serial.portName,
-                baudRate: serial.baudRate,
-                parity: serial.parity,
-                dataBits: serial.dataBits,
-                stopBits: serial.stopBits,
-            });
-
-            this.serialPort!.on('open', this.#onOpen);
-            this.serialPort!.on('close', this.#onClose);
-            this.serialPort!.on('data', this.#onData);
-            this.serialPort!.on('error', this.#onError);
-        }
+        });
     }
 
     reconnect(): void {}
