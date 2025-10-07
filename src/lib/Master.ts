@@ -490,7 +490,7 @@ export class Master {
                     for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
                         const id = regs.config[n].id;
                         try {
-                            let val = extractValue(
+                            let val: string | number | null = extractValue(
                                 regs.config[n].type,
                                 regs.config[n].len,
                                 response.payload,
@@ -565,6 +565,10 @@ export class Master {
                             } else if (typeof val === 'number') {
                                 val = val * regs.config[n].factor + regs.config[n].offset;
                                 val = Math.round(val * this.options.config.round) / this.options.config.round;
+                                if (isNaN(val)) {
+                                    // ignore NaN results
+                                    val = null;
+                                }
                             }
 
                             if (
