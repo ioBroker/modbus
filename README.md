@@ -17,23 +17,25 @@ import { readFileSync } from 'node:fs';
 const adapterName = JSON.parse(readFileSync(`${__dirname}/../io-package.json`, 'utf8')).common.name;
 
 export class ModbusAdapter extends ModbusTemplate {
-    public constructor(options: Partial<AdapterOptions> = {}) {
+    public constructor(adapterOptions: Partial<AdapterOptions> = {}) {
         const holdingRegs = tsv2registers('holdingRegs', `${__dirname}/../data/holdingRegs.tsv`);
 
         super(
             adapterName,
-            options,
+            adapterOptions,
             {
-                // Do not show addresses in the object IDs
-                doNotIncludeAdrInId: true,
-                // Remove the leading "_" in the names
-                removeUnderscorePrefix: true,
-                // Do not show aliases, because we don't want to see addresses
-                showAliases: false,
-                // Replace holdingRegister (and so on) with "data" in the object names
-                registerTypeInName: 'data',
+                params: {
+                    // Do not show addresses in the object IDs
+                    doNotIncludeAdrInId: true,
+                        // Remove the leading "_" in the names
+                        removeUnderscorePrefix: true,
+                    // Do not show aliases, because we don't want to see addresses
+                    showAliases: false,
+                    // Replace holdingRegister (and so on) with "data" in the object names
+                    registerTypeInName: 'data',
+                },
+                holdingRegs,
             },
-            { holdingRegs },
         );
     }
 }
@@ -59,7 +61,7 @@ export class ModbusAdapter extends ModbusTemplate {
     public constructor(options) {
         const holdingRegs = tsv2registers('holdingRegs', `${__dirname}/../data/holdingRegs.tsv`);
 
-        super(adapterName, options, undefined, { holdingRegs });
+        super(adapterName, options, { holdingRegs });
     }
 }
 
@@ -87,10 +89,12 @@ export class ModbusAdapter extends ModbusTemplate {
             adapterName,
             options,
             {
-                port: 520, // you can override all parameters here
-            },
-            'deviceType', // name of the attribute in config to read files from
-            `${__dirname}/..`, // adapter diractory
+                params: {
+                    port: 520, // you can override all parameters here
+                },
+                parameterNameForFile: 'deviceType', // name of the attribute in config to read files from
+                adapterRootDirectory: `${__dirname}/..`, // adapter diractory
+            }
         );
     }
 }
