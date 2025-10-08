@@ -164,14 +164,11 @@ export default class ModbusAdapter extends Adapter {
         adapterOptions: Partial<AdapterOptions> = {},
         options?: {
             params?: Modbus.ModbusParameters;
-            registersOrParameterName?:
-                | {
-                      disInputs?: Modbus.Register[];
-                      coils?: Modbus.Register[];
-                      inputRegs?: Modbus.Register[];
-                      holdingRegs?: Modbus.Register[];
-                  }
-                | string;
+            disInputs?: Modbus.Register[];
+            coils?: Modbus.Register[];
+            inputRegs?: Modbus.Register[];
+            holdingRegs?: Modbus.Register[];
+            parameterNameForFile?: string;
             adapterRootDirectory?: string;
             onBeforeReady?: (adapter: ModbusAdapter) => Promise<void> | void;
         },
@@ -193,18 +190,18 @@ export default class ModbusAdapter extends Adapter {
                     ...options?.params,
                     ...this.config.params,
                 };
+                this.config.coils ||= options?.coils || [];
+                this.config.disInputs ||= options?.disInputs || [];
+                this.config.inputRegs ||= options?.inputRegs || [];
+                this.config.holdingRegs ||= options?.holdingRegs || [];
 
-                if (typeof options?.registersOrParameterName === 'object') {
-                    this.config.coils ||= options.registersOrParameterName.coils || [];
-                    this.config.disInputs ||= options.registersOrParameterName.disInputs || [];
-                    this.config.inputRegs ||= options.registersOrParameterName.inputRegs || [];
-                    this.config.holdingRegs ||= options.registersOrParameterName.holdingRegs || [];
-                } else if (typeof options?.registersOrParameterName === 'string') {
-                    if (!options.adapterRootDirectory) {
+                // Read TSV from file
+                if (typeof options?.parameterNameForFile === 'string') {
+                    if (!options.adapterRootDirectory || typeof options.adapterRootDirectory !== 'string') {
                         throw new Error('adapterRootDirectory must be a directory');
                     }
                     // Try to read file
-                    const fileName: string = getParam(this.config, options.registersOrParameterName);
+                    const fileName: string = getParam(this.config, options.parameterNameForFile);
                     if (existsSync(join(options.adapterRootDirectory, fileName))) {
                         // It is only one file, so apply to holdings register
                         const holdingRegs = tsv2registers('holdingRegs', join(options.adapterRootDirectory, fileName));
@@ -266,7 +263,7 @@ export default class ModbusAdapter extends Adapter {
                             });
                         } else {
                             throw new Error(
-                                `Cannot find TSV file from "${options.registersOrParameterName} => ${fileName}`,
+                                `Cannot find TSV file from "${options.parameterNameForFile} => ${fileName}`,
                             );
                         }
                     }
