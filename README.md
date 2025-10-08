@@ -131,7 +131,7 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
-### **WORK IN PROGRESS**
+### 7.0.18 (2025-10-08)
 
 - (@GermanBluefox) Added `onBeforeReady` method to do something before adapter starts
 
