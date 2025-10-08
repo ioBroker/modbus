@@ -1,6 +1,6 @@
 {
   "name": "@iobroker/modbus",
-  "version": "7.0.19",
+  "version": "7.0.20",
   "description": "Template for Modbus protocol in ioBroker",
   "publishConfig": {
     "access": "public"
