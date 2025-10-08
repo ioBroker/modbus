@@ -161,70 +161,73 @@ export default class ModbusAdapter extends Adapter {
 
     public constructor(
         adapterName: string,
-        options: Partial<AdapterOptions> = {},
-        params?: Modbus.ModbusParameters,
-        registersOrParameterName?:
-            | {
-                  disInputs?: Modbus.Register[];
-                  coils?: Modbus.Register[];
-                  inputRegs?: Modbus.Register[];
-                  holdingRegs?: Modbus.Register[];
-              }
-            | string,
-        adapterRootDirectory?: string,
+        adapterOptions: Partial<AdapterOptions> = {},
+        options?: {
+            params?: Modbus.ModbusParameters;
+            registersOrParameterName?:
+                | {
+                      disInputs?: Modbus.Register[];
+                      coils?: Modbus.Register[];
+                      inputRegs?: Modbus.Register[];
+                      holdingRegs?: Modbus.Register[];
+                  }
+                | string;
+            adapterRootDirectory?: string;
+            onBeforeReady?: (adapter: ModbusAdapter) => Promise<void> | void;
+        },
     ) {
         super({
-            ...options,
+            ...adapterOptions,
             name: adapterName,
-            ready: () => {
-                // @ts-expect-error backwards compatibility
-                if (this.config.params.pulsetime !== undefined && this.config.params.pulseTime === undefined) {
-                    // @ts-expect-error backwards compatibility
-                    this.config.params.pulseTime = this.config.params.pulsetime;
-                }
-
-                // Backwards compatibility
-                if (this.config.params.slave === '0' && !this.config.params.host && this.config.params.bind) {
-                    this.config.params.host = this.config.params.bind;
+            ready: async (): Promise<void> => {
+                if (options?.onBeforeReady) {
+                    const result = options.onBeforeReady(this);
+                    if (result instanceof Promise) {
+                        await result;
+                    }
                 }
 
                 // Merge configuration
                 this.config.params = {
                     ...defaultParams,
-                    ...params,
+                    ...options?.params,
                     ...this.config.params,
                 };
-                if (typeof registersOrParameterName === 'object') {
-                    this.config.coils ||= registersOrParameterName.coils || [];
-                    this.config.disInputs ||= registersOrParameterName.disInputs || [];
-                    this.config.inputRegs ||= registersOrParameterName.inputRegs || [];
-                    this.config.holdingRegs ||= registersOrParameterName.holdingRegs || [];
-                } else if (typeof registersOrParameterName === 'string') {
-                    if (!adapterRootDirectory) {
+
+                if (typeof options?.registersOrParameterName === 'object') {
+                    this.config.coils ||= options.registersOrParameterName.coils || [];
+                    this.config.disInputs ||= options.registersOrParameterName.disInputs || [];
+                    this.config.inputRegs ||= options.registersOrParameterName.inputRegs || [];
+                    this.config.holdingRegs ||= options.registersOrParameterName.holdingRegs || [];
+                } else if (typeof options?.registersOrParameterName === 'string') {
+                    if (!options.adapterRootDirectory) {
                         throw new Error('adapterRootDirectory must be a directory');
                     }
                     // Try to read file
-                    const fileName: string = getParam(this.config, registersOrParameterName);
-                    if (existsSync(join(adapterRootDirectory, fileName))) {
+                    const fileName: string = getParam(this.config, options.registersOrParameterName);
+                    if (existsSync(join(options.adapterRootDirectory, fileName))) {
                         // It is only one file, so apply to holdings register
-                        const holdingRegs = tsv2registers('holdingRegs', join(adapterRootDirectory, fileName));
+                        const holdingRegs = tsv2registers('holdingRegs', join(options.adapterRootDirectory, fileName));
                         this.config.coils ||= [];
                         this.config.disInputs ||= [];
                         this.config.inputRegs = holdingRegs;
                         this.config.holdingRegs ||= [];
-                    } else if (existsSync(join(adapterRootDirectory, `${fileName}.tsv`))) {
+                    } else if (existsSync(join(options.adapterRootDirectory, `${fileName}.tsv`))) {
                         // It is only one file, so apply to holdings register
-                        const holdingRegs = tsv2registers('holdingRegs', join(adapterRootDirectory, `${fileName}.tsv`));
+                        const holdingRegs = tsv2registers(
+                            'holdingRegs',
+                            join(options.adapterRootDirectory, `${fileName}.tsv`),
+                        );
                         this.config.coils ||= [];
                         this.config.disInputs ||= [];
                         this.config.inputRegs = holdingRegs;
                         this.config.holdingRegs ||= [];
-                    } else {
+                    } else if (options?.adapterRootDirectory) {
                         const [name, ext] = fileName.split('.');
                         if (
                             ext &&
                             ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].find(type =>
-                                existsSync(join(adapterRootDirectory, `${name + type}.${ext}`)),
+                                existsSync(join(options.adapterRootDirectory!, `${name + type}.${ext}`)),
                             )
                         ) {
                             this.config.coils ||= [];
@@ -233,18 +236,18 @@ export default class ModbusAdapter extends Adapter {
                             this.config.holdingRegs ||= [];
                             // We have multiple definitions
                             ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].forEach(type => {
-                                if (existsSync(join(adapterRootDirectory, `${name + type}.${ext}`))) {
+                                if (existsSync(join(options.adapterRootDirectory!, `${name + type}.${ext}`))) {
                                     this.config[type as 'coils' | 'disInputs' | 'inputRegs' | 'holdingRegs'] ||=
                                         tsv2registers(
                                             'holdingRegs',
-                                            join(adapterRootDirectory, `${name + type}.${ext}`),
+                                            join(options.adapterRootDirectory!, `${name + type}.${ext}`),
                                         );
                                 }
                             });
                         } else if (
                             !ext &&
                             ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].find(type =>
-                                existsSync(join(adapterRootDirectory, `${name + type}.tsv`)),
+                                existsSync(join(options.adapterRootDirectory!, `${name + type}.tsv`)),
                             )
                         ) {
                             this.config.coils ||= [];
@@ -253,13 +256,18 @@ export default class ModbusAdapter extends Adapter {
                             this.config.holdingRegs ||= [];
                             // We have multiple definitions
                             ['coils', 'disInputs', 'inputRegs', 'holdingRegs'].forEach(type => {
-                                if (existsSync(join(adapterRootDirectory, `${name + type}.tsv`))) {
+                                if (existsSync(join(options.adapterRootDirectory!, `${name + type}.tsv`))) {
                                     this.config[type as 'coils' | 'disInputs' | 'inputRegs' | 'holdingRegs'] ||=
-                                        tsv2registers('holdingRegs', join(adapterRootDirectory, `${name + type}.tsv`));
+                                        tsv2registers(
+                                            'holdingRegs',
+                                            join(options.adapterRootDirectory!, `${name + type}.tsv`),
+                                        );
                                 }
                             });
                         } else {
-                            throw new Error(`Cannot find TSV file from "${registersOrParameterName} => ${fileName}`);
+                            throw new Error(
+                                `Cannot find TSV file from "${options.registersOrParameterName} => ${fileName}`,
+                            );
                         }
                     }
                 }

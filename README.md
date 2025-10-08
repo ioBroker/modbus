@@ -131,6 +131,10 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
+### **WORK IN PROGRESS**
+
+- (@GermanBluefox) Added `onBeforeReady` method to do something before adapter starts
+
 ### 7.0.17 (2025-10-07)
 
 - (@GermanBluefox) Added `host` parameter for master connection
