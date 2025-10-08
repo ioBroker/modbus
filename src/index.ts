@@ -585,7 +585,7 @@ export default class ModbusAdapter extends Adapter {
         } else {
             options.config.serial = {
                 comName: params.comName,
-                baudRate: params.baudRate,
+                baudRate: parseInt(params.baudRate as string, 10),
                 dataBits: parseInt(params.dataBits as string, 10) as 5 | 6 | 7 | 8,
                 stopBits: parseInt(params.stopBits as string, 10) as 1 | 2,
                 parity: params.parity,

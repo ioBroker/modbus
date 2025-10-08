@@ -225,7 +225,7 @@ export interface ModbusParametersTyped extends ModbusParameters {
     /** Serial port name if type is 'serial' */
     comName: string;
     /** Serial baud rate if type is 'serial' */
-    baudRate: number;
+    baudRate: number | string;
     /** Serial data bits if type is 'serial' */
     dataBits: 5 | 6 | 7 | 8 | string;
     /** Serial stop bits if type is 'serial' */
