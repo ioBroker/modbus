@@ -45,6 +45,7 @@
   "main": "build/index.js",
   "files": [
     "build/",
+    "encrypt.mjs",
     "LICENSE"
   ],
   "scripts": {

@@ -1,6 +1,11 @@
 import type { Register, RegisterType } from './types';
 import { tsv2json } from 'tsv-json';
 import { readFileSync, existsSync } from 'node:fs';
+import { scryptSync, createDecipheriv, type BinaryLike } from 'node:crypto';
+
+const ALGO = 'aes-256-gcm';
+const KEY_LEN = 32; // 256 Bit
+const IV_LEN = 12; // GCM suggest 12 Byte
 
 type RegisterField = {
     name: string;
@@ -65,10 +70,37 @@ const inputRegs: RegisterField[] = [
     { name: 'isScale', type: 'checkbox' },
 ];
 
-export default function tsv2registers(type: RegisterType, fileNameOrText: string): Register[] {
+export function decrypt(cipherTextB64: string, password: BinaryLike): string {
+    const data = Buffer.from(cipherTextB64, 'base64');
+    if (typeof password === 'string' && password.length !== 32) {
+        password = Buffer.from(password, 'base64');
+    }
+
+    const salt = data.subarray(0, 16);
+    const iv = data.subarray(16, 16 + IV_LEN);
+    const authTag = data.subarray(16 + IV_LEN, 16 + IV_LEN + 16);
+    const encrypted = data.subarray(16 + IV_LEN + 16);
+
+    const key = scryptSync(password, salt, KEY_LEN);
+
+    const decipher = createDecipheriv(ALGO, key, iv);
+    decipher.setAuthTag(authTag);
+
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+}
+
+export default function tsv2registers(type: RegisterType, fileNameOrText: string, password?: string): Register[] {
     if (fileNameOrText.toLowerCase().endsWith('.tsv')) {
         if (existsSync(fileNameOrText)) {
             fileNameOrText = readFileSync(fileNameOrText).toString();
+        } else {
+            throw new Error(`File name ${fileNameOrText} not found`);
+        }
+    } else if (fileNameOrText.toLowerCase().endsWith('tsv.enc')) {
+        if (existsSync(fileNameOrText)) {
+            fileNameOrText = readFileSync(fileNameOrText).toString();
+            fileNameOrText = decrypt(fileNameOrText, password || '');
         } else {
             throw new Error(`File name ${fileNameOrText} not found`);
         }
