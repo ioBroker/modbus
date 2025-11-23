@@ -135,6 +135,10 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
+### **WORK IN PROGRESS**
+
+- (@GermanBluefox) Updated packages
+
 ### 7.0.20 (2025-10-08)
 
 - (@GermanBluefox) Corrected serial communication

@@ -69,6 +69,8 @@ export default function tsv2registers(type: RegisterType, fileNameOrText: string
     if (fileNameOrText.toLowerCase().endsWith('.tsv')) {
         if (existsSync(fileNameOrText)) {
             fileNameOrText = readFileSync(fileNameOrText).toString();
+        } else {
+            throw new Error(`File name ${fileNameOrText} not found`);
         }
     }
     let propsFields: RegisterField[] | undefined;
