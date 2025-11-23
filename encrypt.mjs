@@ -10,8 +10,6 @@ function generatePassword32() {
     return randomBytes(32); // oder 'hex' für hexadezimale Darstellung
 }
 
-console.log(generatePassword32());
-
 /**
  * Encrypts plainText with the given password.
  *
