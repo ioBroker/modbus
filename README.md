@@ -135,6 +135,9 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
+### **WORK IN PROGRESS**
+- (@GermanBluefox) Corrected parsing of TSV files
+
 ### 7.0.22 (2025-11-23)
 
 - (@GermanBluefox) Updated packages

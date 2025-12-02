@@ -69,6 +69,12 @@ const inputRegs: RegisterField[] = [
     { name: 'cw', type: 'checkbox' },
     { name: 'isScale', type: 'checkbox' },
 ];
+const regTypes = {
+    coils,
+    disInputs,
+    holdingRegs,
+    inputRegs,
+};
 
 export function decrypt(cipherTextB64: string, password: BinaryLike): string {
     const data = Buffer.from(cipherTextB64, 'base64');
@@ -105,17 +111,7 @@ export default function tsv2registers(type: RegisterType, fileNameOrText: string
             throw new Error(`File name ${fileNameOrText} not found`);
         }
     }
-    let propsFields: RegisterField[] | undefined;
-
-    if (type === 'coils') {
-        propsFields = coils;
-    } else if (type === 'inputRegs') {
-        propsFields = inputRegs;
-    } else if (type === 'holdingRegs') {
-        propsFields = holdingRegs;
-    } else if (type === 'disInputs') {
-        propsFields = disInputs;
-    }
+    const propsFields = regTypes[type];
 
     if (!propsFields) {
         throw new Error('Unknown register type');
@@ -126,20 +122,28 @@ export default function tsv2registers(type: RegisterType, fileNameOrText: string
     );
     const fields = data.shift();
     if (fields) {
-        for (const index in propsFields) {
-            if (propsFields[index].name !== fields[index]) {
-                throw new Error(`Unexpected field ${index} for ${fields[index]}`);
+        for (const field of fields) {
+            if (!propsFields.find(it => it.name === field)) {
+                throw new Error(`Unexpected field ${field}`);
             }
         }
+    } else {
+        throw new Error('No fields found');
     }
 
     return data.map(itemValues => {
         const item: Register = {} as Register;
-        for (const index in propsFields) {
-            if (propsFields[index].type === 'checkbox') {
-                itemValues[index] = itemValues[index] === 'true';
+        for (let f = 0; f < itemValues.length; f++) {
+            const field = fields[f];
+            const prop = propsFields.find(it => it.name === field);
+            if (!prop) {
+                // cannot happen due to check before
+                continue;
             }
-            (item as unknown as Record<string, string | boolean | number>)[propsFields[index].name] = itemValues[index];
+            if (prop.type === 'checkbox') {
+                itemValues[f] = itemValues[f] === 'true';
+            }
+            (item as unknown as Record<string, string | boolean | number>)[prop.name] = itemValues[f];
         }
         return item;
     });
