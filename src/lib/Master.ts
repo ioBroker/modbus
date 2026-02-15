@@ -199,7 +199,7 @@ export class Master {
                 return;
             }
 
-            this.reconnectTimeout = adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
         });
 
         this.modbusClient.on('error', err => {
@@ -212,7 +212,7 @@ export class Master {
                 adapter.log.warn(`On error: ${JSON.stringify(err)}`);
             }
 
-            this.reconnectTimeout = adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
         });
 
         this.modbusClient.on('trashCurrentRequest', err => {
@@ -220,7 +220,7 @@ export class Master {
                 return;
             }
             adapter.log.warn(`Error: ${JSON.stringify(err)}`);
-            this.reconnectTimeout = adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
         });
     }
 
@@ -296,7 +296,7 @@ export class Master {
             );
         }
 
-        if (this.modbusClient) {
+        if (this.modbusClient && this.connected && !this.isStop) {
             let response: ModbusReadResultBinary;
             try {
                 if (regType === 'disInputs') {
@@ -374,7 +374,7 @@ export class Master {
         regType: 'disInputs' | 'coils',
     ): Promise<void> {
         const regs = device[regType];
-        for (let n = 0; n < regs.length; n++) {
+        for (let n = 0; n < regs.blocks.length; n++) {
             if (this.connected && !this.isStop) {
                 await this.#pollBinariesBlock(device, regType, n);
                 await this.#waitAsync(this.options.config.readInterval);
@@ -448,7 +448,10 @@ export class Master {
                                         this.adapter.log.debug(`[${prefixAddr}] _Formula = ${formula}`);
                                     }
                                     try {
-                                        const scaleAddress = parseInt(formula.substring(formula.indexOf('sf[') + 4));
+                                        const scaleAddress = parseInt(
+                                            formula.substring(formula.indexOf('sf[') + 3),
+                                            10,
+                                        );
                                         if (scaleAddress !== null && !isNaN(scaleAddress)) {
                                             this.adapter.log.warn(
                                                 `[${prefixAddr}] Calculation of a scaleFactor which is based on another scaleFactor seems strange. Please check the config for address ${regs.config[n].address} !`,
@@ -512,7 +515,7 @@ export class Master {
                                         m?.forEach(sf => {
                                             const num = sf.match(/\d+/);
                                             if (num) {
-                                                const scaleAddress = parseInt(num[1]);
+                                                const scaleAddress = parseInt(num[0], 10);
 
                                                 if (scaleAddress !== null && !isNaN(scaleAddress)) {
                                                     // it seems that the current formula uses a scaleFactor, therefore check the validity
@@ -659,7 +662,7 @@ export class Master {
         }
     }
 
-    #pollResult(startTime: number, deviceId: number, err: Error): Error | undefined {
+    #pollResult(startTime: number, deviceId: number, err: Error | null): Error | undefined {
         if (err) {
             this.errorCount++;
 
@@ -708,55 +711,64 @@ export class Master {
         const startTime = new Date().valueOf();
 
         // Track errors from each register type but continue polling
-        const pollErrors = [];
+        const pollErrors: { desc: string; error: Error }[] = [];
+        let operations = 4;
 
         // Poll discrete inputs
         try {
             await this.#pollBinariesBlocks(device, 'disInputs');
         } catch (err) {
-            pollErrors.push(err);
+            pollErrors.push({ desc: 'pollBinariesBlocks', error: err });
         }
 
         // Poll coils
         try {
             await this.#pollBinariesBlocks(device, 'coils');
         } catch (err) {
-            pollErrors.push(err);
+            pollErrors.push({ desc: 'pollBinariesBlocks', error: err });
         }
 
         // Poll input registers
         try {
             await this.#pollFloatsBlocks(device, 'inputRegs');
         } catch (err) {
-            pollErrors.push(err);
+            pollErrors.push({ desc: 'pollFloatsBlocks', error: err });
         }
 
         // Poll holding registers
         try {
             await this.#pollFloatsBlocks(device, 'holdingRegs');
         } catch (err) {
-            pollErrors.push(err);
+            pollErrors.push({ desc: 'pollFloatsBlocks', error: err });
         }
 
         if (device.holdingRegs.cyclicWrite?.length && this.options.config.maxBlock! >= 2) {
             try {
+                operations++;
                 await this.#writeFloatsRegs(device);
                 await this.#waitAsync(this.options.config.writeInterval);
             } catch (err) {
-                pollErrors.push(err);
+                pollErrors.push({ desc: 'writeFloatsRegs', error: err });
             }
         }
 
         if (this.connected && !this.isStop) {
             // If all polls failed, report error, otherwise report success
-            const allFailed = pollErrors.length === 4;
+            const allFailed = pollErrors.length === operations;
             const error = allFailed ? pollErrors[0] : null; // Report first error if all failed
-            if (pollErrors.length && pollErrors.length < 4) {
+            if (pollErrors.length && pollErrors.length < operations) {
                 this.adapter.log.warn(
-                    `[DevID_${device.coils.deviceId}] Some register types failed but continuing: ${pollErrors.length}/4 errors`,
+                    `[DevID_${device.coils.deviceId}] Some register types failed but continuing: ${pollErrors.length}/${operations} errors`,
                 );
+                // show errors
+                for (const err of pollErrors) {
+                    this.adapter.log.warn(`[DevID_${device.coils.deviceId}] ${err.desc}: ${err.error}`);
+                }
             }
-            this.#pollResult(startTime, device.coils.deviceId, error);
+            const result = this.#pollResult(startTime, device.coils.deviceId, error?.error || null);
+            if (result) {
+                throw result;
+            }
         }
     }
 
@@ -873,9 +885,10 @@ export class Master {
         }
 
         const id = Object.keys(this.sendBuffer)[0];
-        await this.#writeValue(id, this.sendBuffer[id]);
-
+        const val = this.sendBuffer[id];
         delete this.sendBuffer[id];
+
+        await this.#writeValue(id, val);
 
         if (Object.keys(this.sendBuffer).length) {
             this.adapter.setTimeout(() => this.#send(), this.options.config.writeInterval || 0);

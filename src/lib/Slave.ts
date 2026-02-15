@@ -46,7 +46,7 @@ export default class Slave {
         // read all other states and set alive to false
         void adapter.getForeignStatesAsync(`${adapter.namespace}.info.clients.*`).then(async allStates => {
             for (const id in allStates) {
-                if (allStates[id] && allStates[id].val) {
+                if (allStates[id]?.val) {
                     await adapter.setStateAsync(id, false, true);
                 }
             }
