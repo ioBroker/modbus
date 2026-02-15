@@ -349,7 +349,7 @@ export default class ModbusAdapter extends Adapter {
         }
 
         if (this.setState && this.config?.params) {
-            void this.setState('info.connection', this.config.params.slave ? '' : false, true);
+            void this.setState('info.connection', this.config.params.slave === '1' ? '' : false, true);
         }
 
         void this.getForeignStatesAsync(`${this.namespace}.info.clients.*`).then(async allStates => {
@@ -750,7 +750,7 @@ export default class ModbusAdapter extends Adapter {
                               ? 'string'
                               : 'number',
                     read: true,
-                    write: !!this.config.params.slave || regType === 'coils' || regType === 'holdingRegs',
+                    write: this.config.params.slave === '1' || regType === 'coils' || regType === 'holdingRegs',
                     def:
                         regType === 'coils' || regType === 'disInputs'
                             ? false
@@ -1312,7 +1312,7 @@ export default class ModbusAdapter extends Adapter {
             obj.common.def = false;
             await this.setObjectAsync('info.connection', obj);
         }
-        await this.setStateAsync('info.connection', this.config.params.slave ? '' : false, true);
+        await this.setStateAsync('info.connection', this.config.params.slave === '1' ? '' : false, true);
 
         newObjects.push(`${this.namespace}.info.connection`);
 
