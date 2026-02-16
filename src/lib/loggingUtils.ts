@@ -15,7 +15,7 @@ export function createLoggingWrapper(originalLog: ioBroker.Logger, disableLoggin
     }
 
     // List of connection error messages that should be suppressed when logging is disabled
-    const suppressedErrorMessages = ['Socket Error', 'Client in error state'];
+    const suppressedErrorMessages = ['Socket Error', 'Client in error state', 'Request timed out.'];
 
     return {
         silly: originalLog.silly.bind(originalLog),

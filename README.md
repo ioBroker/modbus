@@ -135,6 +135,9 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
+### **WORK IN PROGRESS**
+- (@GermanBluefox) Disable logging of request timeout if `disableLogging` parameter is set to true
+
 ### 7.0.24 (2026-02-15)
 - (@GermanBluefox) Corrected the reading of registers
 - (@GermanBluefox) Corrected the type of `info.connection`
