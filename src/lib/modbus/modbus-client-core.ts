@@ -377,6 +377,13 @@ export default abstract class ModbusClientCore extends EventEmitter {
             };
             const registerCount = byteCount / 2;
 
+            if (byteCount + 2 > pdu.byteLength) {
+                cb({
+                    message: `ReadHoldingRegisters: Response length is invalid. Received ${pdu.byteLength} bytes, expected ${byteCount + 2} bytes`,
+                });
+                return;
+            }
+
             for (let i = 0; i < registerCount; i++) {
                 resp.register.push(pdu.readUInt16BE(2 + i * 2));
             }
@@ -506,8 +513,8 @@ export default abstract class ModbusClientCore extends EventEmitter {
             fc,
             registerAddress,
             registerValue,
-            registerAddressRaw: pdu.slice(1, 2),
-            registerValueRaw: pdu.slice(3, 2),
+            registerAddressRaw: pdu.slice(1, 3),
+            registerValueRaw: pdu.slice(3, 5),
         };
 
         if (fc !== 6) {

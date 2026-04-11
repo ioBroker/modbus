@@ -15,7 +15,7 @@ export default class ModbusServerTcp extends ModbusServerCore {
         };
     }[] = [];
     private clients: Socket[] = [];
-    private buffer = Buffer.alloc(0);
+    private buffers = new WeakMap<Socket, Buffer>();
 
     private tcp: {
         port: number;
@@ -62,24 +62,25 @@ export default class ModbusServerTcp extends ModbusServerCore {
 
     #onSocketData = (socket: Socket): ((data: Buffer) => void) => {
         return (data: Buffer): void => {
-            this.buffer = Buffer.concat([this.buffer, data]);
+            let buffer = this.buffers.get(socket) || Buffer.alloc(0);
+            buffer = Buffer.concat([buffer, data]);
 
-            while (this.buffer.length > 8) {
+            while (buffer.length > 8) {
                 // 1. extract mbap
 
-                const len = this.buffer.readUInt16BE(4);
+                const len = buffer.readUInt16BE(4);
                 const request = {
-                    transId: this.buffer.readUInt16BE(0),
-                    protocolVer: this.buffer.readUInt16BE(2),
-                    unitId: this.buffer.readUInt8(6),
+                    transId: buffer.readUInt16BE(0),
+                    protocolVer: buffer.readUInt16BE(2),
+                    unitId: buffer.readUInt8(6),
                 };
 
                 // 2. extract pdu
-                if (this.buffer.length < 7 + len - 1) {
+                if (buffer.length < 7 + len - 1) {
                     break; // wait for next bytes
                 }
 
-                const pdu = this.buffer.slice(7, 7 + len - 1);
+                const pdu = buffer.slice(7, 7 + len - 1);
 
                 // emit data event and let the
                 // listener handle the pdu
@@ -88,8 +89,10 @@ export default class ModbusServerTcp extends ModbusServerCore {
 
                 this.#flush();
 
-                this.buffer = this.buffer.slice(pdu.length + 7, this.buffer.length);
+                buffer = buffer.slice(pdu.length + 7, buffer.length);
             }
+
+            this.buffers.set(socket, buffer);
         };
     };
 

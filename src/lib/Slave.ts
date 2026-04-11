@@ -399,8 +399,8 @@ export default class Slave {
                         let val = extractValue(native.type, native.len, buf, 0);
 
                         if (!['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(native.type)) {
-                            val = ((val as number) - native.offset) / native.factor;
-                            val = Math.round(val * this.options.config.round) / this.options.config.round;
+                            val = (val as number) * native.factor + native.offset;
+                            val = Math.round((val as number) * this.options.config.round) / this.options.config.round;
                         }
 
                         void this.adapter.setState(
@@ -412,7 +412,7 @@ export default class Slave {
                                 err && this.adapter.log.error(`Can not set state: ${err.message}`),
                         );
                     } catch (err) {
-                        this.adapter.log.error(`Can not set value: ${err.message}`);
+                        this.adapter.log.error(`Can not set value: ${(err as Error).message}`);
                     }
 
                     regs.values[a] = buf[0];

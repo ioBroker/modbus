@@ -207,8 +207,8 @@ export default class ModbusAdapter extends Adapter {
                         const holdingRegs = tsv2registers('holdingRegs', join(options.adapterRootDirectory, fileName));
                         this.config.coils ||= [];
                         this.config.disInputs ||= [];
-                        this.config.inputRegs = holdingRegs;
-                        this.config.holdingRegs ||= [];
+                        this.config.inputRegs ||= [];
+                        this.config.holdingRegs = holdingRegs;
                     } else if (existsSync(join(options.adapterRootDirectory, `${fileName}.tsv`))) {
                         // It is only one file, so apply to holdings register
                         const holdingRegs = tsv2registers(
@@ -217,8 +217,8 @@ export default class ModbusAdapter extends Adapter {
                         );
                         this.config.coils ||= [];
                         this.config.disInputs ||= [];
-                        this.config.inputRegs = holdingRegs;
-                        this.config.holdingRegs ||= [];
+                        this.config.inputRegs ||= [];
+                        this.config.holdingRegs = holdingRegs;
                     } else if (options?.adapterRootDirectory) {
                         const [name, ext] = fileName.split('.');
                         if (
@@ -236,7 +236,7 @@ export default class ModbusAdapter extends Adapter {
                                 if (existsSync(join(options.adapterRootDirectory!, `${name + type}.${ext}`))) {
                                     this.config[type as 'coils' | 'disInputs' | 'inputRegs' | 'holdingRegs'] ||=
                                         tsv2registers(
-                                            'holdingRegs',
+                                            type as Modbus.RegisterType,
                                             join(options.adapterRootDirectory!, `${name + type}.${ext}`),
                                         );
                                 }
@@ -256,7 +256,7 @@ export default class ModbusAdapter extends Adapter {
                                 if (existsSync(join(options.adapterRootDirectory!, `${name + type}.tsv`))) {
                                     this.config[type as 'coils' | 'disInputs' | 'inputRegs' | 'holdingRegs'] ||=
                                         tsv2registers(
-                                            'holdingRegs',
+                                            type as Modbus.RegisterType,
                                             join(options.adapterRootDirectory!, `${name + type}.tsv`),
                                         );
                                 }
@@ -927,7 +927,7 @@ export default class ModbusAdapter extends Adapter {
                 }
             }
             if (config[i].id.endsWith('.')) {
-                config[i].id += config[i].id.substring(0, config[i].id.length - 1);
+                config[i].id = config[i].id.substring(0, config[i].id.length - 1);
             }
         }
     }

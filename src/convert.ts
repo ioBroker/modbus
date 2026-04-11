@@ -103,7 +103,7 @@ export default function tsv2registers(type: RegisterType, fileNameOrText: string
         } else {
             throw new Error(`File name ${fileNameOrText} not found`);
         }
-    } else if (fileNameOrText.toLowerCase().endsWith('tsv.enc')) {
+    } else if (fileNameOrText.toLowerCase().endsWith('.tsv.enc')) {
         if (existsSync(fileNameOrText)) {
             fileNameOrText = readFileSync(fileNameOrText).toString();
             fileNameOrText = decrypt(fileNameOrText, password || '');
