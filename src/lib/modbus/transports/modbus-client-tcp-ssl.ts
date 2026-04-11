@@ -67,7 +67,9 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
         if (this.socket?.getPeerCertificate) {
             const cert = this.socket.getPeerCertificate();
             if (cert?.subject) {
-                this.log.debug(`Connected to SSL server with certificate subject: ${cert.subject.CN || 'Unknown'}`);
+                this.log.debug(
+                    `Connected to SSL server with certificate subject: ${Array.isArray(cert.subject.CN) ? cert.subject.CN.join(', ') : cert.subject.CN || 'Unknown'}`,
+                );
             }
         }
 
