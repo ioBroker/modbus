@@ -644,8 +644,10 @@ export class Master {
 
         // Check min/max range
         if (!invalid) {
-            const minVal = typeof config.minValidValue === 'string' ? parseFloat(config.minValidValue) : config.minValidValue;
-            const maxVal = typeof config.maxValidValue === 'string' ? parseFloat(config.maxValidValue) : config.maxValidValue;
+            const minVal =
+                typeof config.minValidValue === 'string' ? parseFloat(config.minValidValue) : config.minValidValue;
+            const maxVal =
+                typeof config.maxValidValue === 'string' ? parseFloat(config.maxValidValue) : config.maxValidValue;
 
             if (minVal !== undefined && !isNaN(minVal) && value < minVal) {
                 invalid = true;
