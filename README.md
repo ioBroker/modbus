@@ -135,7 +135,7 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
-### **WORK IN PROGRESS**
+### 7.2.2 (2026-04-12)
 - (@GermanBluefox) Added "ttyADM***" to the list of possible serial ports
 
 ### 7.2.1 (2026-04-12)
