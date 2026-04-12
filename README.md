@@ -2,7 +2,7 @@
 
 This is a library that allows you to implement ioBroker Adapter that communicates via ModBus with devices.
 
-It could accept TSV file as a configuration. TSV files could be created as export in `ioBroker.modbus` adapter.
+It could accept a TSV file as a configuration. TSV files could be created as export in `ioBroker.modbus` adapter.
 
 ## Usage
 
@@ -75,7 +75,7 @@ if (require.main !== module) {
 }
 ```
 
-### With dynamic TSV file
+### With a dynamic TSV file
 
 ```typescript
 import ModbusTemplate, { tsv2registers } from '@iobroker/modbus';
@@ -109,7 +109,7 @@ if (require.main !== module) {
 }
 ```
 
-In the second example the adapter will read from its configuration attribute `deviceType` the type of the device and tries to find file:
+In the second example the adapter will read from its configuration attribute `deviceType` the type of the device and tries to find a file:
 
 - `<adapterDirectory>/<valueOfDeviceType>` - holding registers
 - or `<adapterDirectory>/<valueOfDeviceType without '.tsv'>inputRegs.tsv` - for input registers
@@ -127,16 +127,17 @@ If you want to use serial port, you have to include `serialport` package into 'p
 There are some programs in folder `test` to test the TCP communication:
 
 - Ananas32/64 is a slave simulator (only holding registers and inputs, no coils and digital inputs)
-- RMMS is master simulator
-- mod_RSsim.exe is a slave simulator. It can be that you need [Microsoft Visual C++ 2008 SP1 Redistributable Package](https://www.microsoft.com/en-us/download/details.aspx?id=5582) to start it (because of Side-By-Side error).
+- RMMS is a master simulator
+- mod_RSsim.exe is a slave simulator. It can be that you need [Microsoft Visual C++ 2008 SP1 Redistributable Package](https://www.microsoft.com/en-us/download/details.aspx?id=5582) to start it (because of a Side-By-Side error).
 
 <!--
 	### **WORK IN PROGRESS**
 -->
 
 ## Changelog
-### 7.1.2 (2026-04-11)
+### **WORK IN PROGRESS**
 - (@GermanBluefox) Corrected potential errors
+- (@GermanBluefox) Added sanity check for the configuration
 
 ### 7.0.25 (2026-02-16)
 - (@GermanBluefox) Disable logging of request timeout if `disableLogging` parameter is set to true
@@ -168,7 +169,7 @@ There are some programs in folder `test` to test the TCP communication:
 
 - (@GermanBluefox) Added `removeUnderscorePrefix` parameter
 - (@GermanBluefox) Added `noRegisterTypeInName` parameter
-- (@GermanBluefox) Allowed to set custom channel name
+- (@GermanBluefox) Allowed to set a custom channel name
 
 ### 7.0.5 (2025-10-06)
 

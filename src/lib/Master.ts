@@ -1,4 +1,4 @@
-import type { DeviceMasterOption, MasterDevice, Options, RegisterType } from '../types';
+import type { DeviceMasterOption, MasterDevice, Options, RegisterInternal, RegisterType } from '../types';
 import { extractValue, writeValue } from './common';
 import type { ModbusReadResultBinary } from './modbus/modbus-client-core';
 import ModbusClientSerial from './modbus/transports/modbus-client-serial';
@@ -26,6 +26,7 @@ export class Master {
     private readonly adapter: ioBroker.Adapter;
     private readonly options: Options;
     private scaleFactors: { [deviceId: number]: { [address: number]: number | string } } = {};
+    private lastValidValues: { [id: string]: number } = {};
 
     private readonly showDebug: boolean;
 
@@ -574,6 +575,15 @@ export class Master {
                                 }
                             }
 
+                            // Apply sanitization if enabled
+                            if (
+                                this.options.config.enableSanitization &&
+                                regs.config[n].sanitize &&
+                                typeof val === 'number'
+                            ) {
+                                val = this.#sanitizeValue(id, val, regs.config[n]);
+                            }
+
                             if (
                                 val !== null &&
                                 (this.options.config.alwaysUpdate ||
@@ -613,6 +623,62 @@ export class Master {
             this.adapter.log.debug(`Poll canceled, because no connection`);
             throw new Error('No connection');
         }
+    }
+
+    /**
+     * Sanitize a register value: detect invalid values (NaN, Infinity, extreme floats, out-of-range)
+     * and apply the configured sanitization action.
+     */
+    #sanitizeValue(id: string, value: number, config: RegisterInternal): number | null {
+        let invalid = false;
+
+        if (isNaN(value) || !isFinite(value)) {
+            invalid = true;
+        } else {
+            // Check extreme float values (typical Modbus error values for 32-bit floats)
+            const MAX_FLOAT32 = 3.4e38;
+            if (value <= -MAX_FLOAT32 || value >= MAX_FLOAT32) {
+                invalid = true;
+            }
+        }
+
+        // Check min/max range
+        if (!invalid) {
+            const minVal = typeof config.minValidValue === 'string' ? parseFloat(config.minValidValue) : config.minValidValue;
+            const maxVal = typeof config.maxValidValue === 'string' ? parseFloat(config.maxValidValue) : config.maxValidValue;
+
+            if (minVal !== undefined && !isNaN(minVal) && value < minVal) {
+                invalid = true;
+            }
+            if (maxVal !== undefined && !isNaN(maxVal) && value > maxVal) {
+                invalid = true;
+            }
+        }
+
+        if (!invalid) {
+            // Value is valid — remember it
+            this.lastValidValues[id] = value;
+            return value;
+        }
+
+        // Value is invalid — apply sanitization action
+        const action = config.sanitizeAction || 'keepLastValid';
+
+        if (action === 'replaceWithZero') {
+            this.adapter.log.debug(`Sanitize: replacing invalid value for ${id} (${value}) with 0`);
+            return 0;
+        }
+
+        // keepLastValid
+        const lastValid = this.lastValidValues[id];
+        if (lastValid !== undefined) {
+            this.adapter.log.debug(`Sanitize: keeping last valid value for ${id}: ${lastValid} (got ${value})`);
+            return lastValid;
+        }
+
+        // No last valid value available — suppress update
+        this.adapter.log.debug(`Sanitize: no last valid value for ${id}, suppressing invalid value ${value}`);
+        return null;
     }
 
     async #pollFloatsBlocks(
