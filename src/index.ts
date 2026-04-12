@@ -368,7 +368,7 @@ export default class ModbusAdapter extends Adapter {
 
     static filterSerialPorts(path: string): boolean {
         // get only serial port names
-        if (!/(tty(S|ACM|USB|AMA|MFD|XR)|rfcomm)/.test(path)) {
+        if (!/(tty(S|ACM|ADM|USB|AMA|MFD|XR)|rfcomm)/.test(path)) {
             return false;
         }
         return statSync(path).isCharacterDevice();
