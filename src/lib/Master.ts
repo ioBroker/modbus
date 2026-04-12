@@ -710,6 +710,12 @@ export class Master {
             }
             if (this.ackObjects[id]) {
                 await this.#writeValue(id, this.ackObjects[id].val);
+            } else {
+                // For non-polled CW registers, read value from ioBroker state database
+                const state = await this.adapter.getStateAsync(id);
+                if (state?.val !== undefined && state?.val !== null) {
+                    await this.#writeValue(id, state.val);
+                }
             }
         }
     }

@@ -1013,11 +1013,14 @@ export default class ModbusAdapter extends Adapter {
                     (result as Modbus.DeviceMasterOption).cyclicWrite!.push(`${this.namespace}.${config[i].id}`);
                 }
 
-                if (address < result.addressLow) {
-                    result.addressLow = address;
-                }
-                if (address + config[i].len > result.addressHigh) {
-                    result.addressHigh = address + config[i].len;
+                // Only include polled registers in address range and block calculations
+                if (config[i].poll) {
+                    if (address < result.addressLow) {
+                        result.addressLow = address;
+                    }
+                    if (address + config[i].len > result.addressHigh) {
+                        result.addressHigh = address + config[i].len;
+                    }
                 }
             }
 
@@ -1027,7 +1030,7 @@ export default class ModbusAdapter extends Adapter {
             let blockStart = 0;
             let i;
             for (i = 0; i < config.length; i++) {
-                if (config[i].deviceId !== deviceId) {
+                if (config[i].deviceId !== deviceId || !config[i].poll) {
                     continue;
                 }
 
@@ -1217,7 +1220,7 @@ export default class ModbusAdapter extends Adapter {
                 e => e.deviceId === deviceId,
             );
             device.holdingRegs.config = (this.config.holdingRegs as Modbus.RegisterInternal[]).filter(
-                e => e.poll && e.deviceId === deviceId,
+                e => (e.poll || e.cw) && e.deviceId === deviceId,
             );
 
             // ----------- remember poll values --------------------------
