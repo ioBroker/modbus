@@ -316,10 +316,6 @@ export class Master {
             }
             if (response.data?.length) {
                 for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
-                    // Skip non-polled registers that may be in the config
-                    if (!regs.config[n].poll) {
-                        continue;
-                    }
                     const id = regs.config[n].id;
                     const val = response.data[regs.config[n].address - regBlock.start];
 
@@ -436,7 +432,7 @@ export class Master {
                 if (response.payload?.length) {
                     // first process all the scale factor values inside the block
                     for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
-                        if (!regs.config[n].poll) {
+                        if (!regs.config[n].poll && regType === 'holdingRegs') {
                             continue;
                         }
                         if (regs.config[n].isScale) {
@@ -500,7 +496,7 @@ export class Master {
                     // now process all values and store to the states
                     for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
                         // Skip non-polled registers (e.g., cyclic-write-only) that may be in the config
-                        if (!regs.config[n].poll) {
+                        if (!regs.config[n].poll && regType === 'holdingRegs') {
                             continue;
                         }
                         const id = regs.config[n].id;

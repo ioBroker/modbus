@@ -1014,7 +1014,7 @@ export default class ModbusAdapter extends Adapter {
                 }
 
                 // Only include polled registers in address range and block calculations
-                if (config[i].poll) {
+                if (config[i].poll || regType === 'disInputs' || regType === 'inputRegs') {
                     if (address < result.addressLow) {
                         result.addressLow = address;
                     }
@@ -1031,7 +1031,10 @@ export default class ModbusAdapter extends Adapter {
             let lastPolledIndex = 0;
             let i;
             for (i = 0; i < config.length; i++) {
-                if (config[i].deviceId !== deviceId || !config[i].poll) {
+                if (
+                    config[i].deviceId !== deviceId ||
+                    (!config[i].poll && (regType === 'coils' || regType === 'holdingRegs'))
+                ) {
                     continue;
                 }
 
