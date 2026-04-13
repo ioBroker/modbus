@@ -1028,6 +1028,7 @@ export default class ModbusAdapter extends Adapter {
             let lastAddress = null;
             let startIndex = 0;
             let blockStart = 0;
+            let lastPolledIndex = 0;
             let i;
             for (i = 0; i < config.length; i++) {
                 if (config[i].deviceId !== deviceId || !config[i].poll) {
@@ -1052,7 +1053,7 @@ export default class ModbusAdapter extends Adapter {
                                 start: blockStart,
                                 count: lastAddress - blockStart,
                                 startIndex: startIndex,
-                                endIndex: i,
+                                endIndex: lastPolledIndex + 1,
                             });
                         }
                         blockStart = config[i].address;
@@ -1060,6 +1061,7 @@ export default class ModbusAdapter extends Adapter {
                     }
                 }
                 lastAddress = config[i].address + config[i].len;
+                lastPolledIndex = i;
             }
             if (
                 lastAddress &&
@@ -1071,7 +1073,7 @@ export default class ModbusAdapter extends Adapter {
                     start: blockStart,
                     count: lastAddress - blockStart,
                     startIndex: startIndex,
-                    endIndex: i,
+                    endIndex: lastPolledIndex + 1,
                 });
             }
 
