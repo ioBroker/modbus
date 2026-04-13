@@ -135,7 +135,7 @@ There are some programs in folder `test` to test the TCP communication:
 -->
 
 ## Changelog
-### **WORK IN PROGRESS**
+### 7.2.6 (2026-04-13)
 - (@GermanBluefox) Corrected room definition for the first register
 
 ### 7.2.5 (2026-04-13)
