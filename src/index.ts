@@ -427,8 +427,10 @@ export default class ModbusAdapter extends Adapter {
             const _enums = await this.getEnumAsync(enumGroup);
             if (_enums) {
                 this.enumObjs[enumGroup] = _enums.result;
+            } else {
+                this.log.warn(`${enumGroup} does not exist`);
+                return;
             }
-            return;
         }
 
         // try to find this id in enums
