@@ -20,7 +20,9 @@ const defaultParams = {
     bind: '127.0.0.1',
     host: '127.0.0.1',
     port: 502,
+    selectBy: 'port',
     comName: '',
+    comDeviceId: '',
     baudRate: 9600,
     dataBits: 8,
     stopBits: 1,
@@ -338,6 +340,40 @@ export default class ModbusAdapter extends Adapter {
                         }
                     }
                     break;
+
+                case 'listUartDevices':
+                    if (obj.callback) {
+                        if (!serialPortList) {
+                            try {
+                                const sModule = await import('serialport');
+                                serialPortList = sModule.SerialPort.list;
+                            } catch (err) {
+                                this.log.warn(`Serial is not available: ${err}`);
+                            }
+                        }
+                        if (serialPortList) {
+                            // read all found serial ports and expose them by their stable USB ID
+                            serialPortList()
+                                .then(ports => {
+                                    const result = ModbusAdapter.listSerialDevices(ports);
+                                    this.log.info(`List of devices: ${JSON.stringify(result)}`);
+                                    this.sendTo(obj.from, obj.command, result, obj.callback);
+                                })
+                                .catch((err: Error) => {
+                                    this.log.warn(`Can not get USB device list: ${err}`);
+                                    this.sendTo(
+                                        obj.from,
+                                        obj.command,
+                                        [{ label: 'Not available', value: '' }],
+                                        obj.callback,
+                                    );
+                                });
+                        } else {
+                            this.log.warn('Module serialport is not available');
+                            this.sendTo(obj.from, obj.command, [{ label: 'Not available', value: '' }], obj.callback);
+                        }
+                    }
+                    break;
             }
         }
     }
@@ -400,6 +436,56 @@ export default class ModbusAdapter extends Adapter {
             result = ports.map(port => ({ label: port.path, value: port.path }));
         }
         return result;
+    }
+
+    /**
+     * Build the list of attached USB serial devices, addressed by their stable vendor/product/serial ID.
+     * Only USB devices report a vendor ID; plain serial ports cannot be addressed this way and are skipped.
+     */
+    static listSerialDevices(ports: PortInfo[]): { label: string; value: string }[] {
+        const devices = (ports || [])
+            .filter(item => item.vendorId)
+            .map(item => ({
+                label: `${item.manufacturer || 'Unknown'} (VID:${item.vendorId} PID:${item.productId || '-'}${item.serialNumber ? ` SN:${item.serialNumber}` : ''}) [${item.path}]`,
+                value: `${item.vendorId}:${item.productId || ''}:${item.serialNumber || ''}`,
+            }));
+        return devices.length ? devices : [{ label: 'No USB devices found', value: '' }];
+    }
+
+    /**
+     * Resolve the configured USB device ID (`vendorId:productId:serialNumber`) to the actual port path of
+     * the currently attached device, so the OS may reassign the path (COMx / ttyUSBx) freely on reboot.
+     * Returns an empty string if no matching device is connected.
+     */
+    async resolveSerialPort(deviceId: string): Promise<string> {
+        const [vendorId, productId, serialNumber] = (deviceId || '').split(':');
+        if (!serialPortList) {
+            try {
+                const sModule = await import('serialport');
+                serialPortList = sModule.SerialPort.list;
+            } catch (err) {
+                this.log.warn(`Serial is not available: ${err}`);
+                return '';
+            }
+        }
+        try {
+            const ports = await serialPortList();
+            const match = ports.find(
+                item =>
+                    (item.vendorId || '').toLowerCase() === (vendorId || '').toLowerCase() &&
+                    (item.productId || '').toLowerCase() === (productId || '').toLowerCase() &&
+                    // serialNumber is not reported on every system; only match it when we have one
+                    (!serialNumber || (item.serialNumber || '') === serialNumber),
+            );
+            if (match) {
+                this.log.info(`Resolved USB device "${deviceId}" to port ${match.path}`);
+                return match.path;
+            }
+            this.log.warn(`No connected serial port matches USB device "${deviceId}"`);
+        } catch (err) {
+            this.log.error(`Cannot list serial ports: ${(err as Error).message || err}`);
+        }
+        return '';
     }
 
     async addToEnum(enumName: string, id: string): Promise<void> {
@@ -586,8 +672,13 @@ export default class ModbusAdapter extends Adapter {
                 }
             }
         } else {
+            // When the device is selected by its stable USB ID, resolve it to the current port path
+            const comName =
+                params.selectBy === 'device' && params.comDeviceId
+                    ? await this.resolveSerialPort(params.comDeviceId)
+                    : params.comName;
             options.config.serial = {
-                comName: params.comName,
+                comName,
                 baudRate: parseInt(params.baudRate as string, 10),
                 dataBits: parseInt(params.dataBits as string, 10) as 5 | 6 | 7 | 8,
                 stopBits: parseInt(params.stopBits as string, 10) as 1 | 2,

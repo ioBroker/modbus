@@ -199,8 +199,12 @@ export interface ModbusParameters {
     host?: string;
     /** TCP port number. Default: 502 */
     port?: number | string;
+    /** How the serial device is chosen: by fixed port path (`port`) or by stable USB device ID (`device`). Default: `"port"` */
+    selectBy?: 'port' | 'device';
     /** Serial port name, e.g. `"/dev/ttyUSB0"` or `"COM3"` */
     comName?: string;
+    /** Stable USB device identifier in the form `vendorId:productId:serialNumber`, used when `selectBy` is `"device"` */
+    comDeviceId?: string;
     /** Serial baud rate, e.g. 9600, 19200, 115200 */
     baudRate?: number;
     /** Serial data bits: 5, 6, 7, or 8 */
@@ -300,8 +304,12 @@ export interface ModbusParametersTyped extends ModbusParameters {
     /** Allow self-signed certificates for SSL connection if the type is 'tcp-ssl' */
     sslAllowSelfSigned: boolean;
 
+    /** How the serial device is chosen if the type is 'serial': by fixed port path (`port`) or by stable USB device ID (`device`) */
+    selectBy: 'port' | 'device';
     /** Serial port name if the type is 'serial' */
     comName: string;
+    /** Stable USB device identifier (`vendorId:productId:serialNumber`) if the type is 'serial' and `selectBy` is `"device"` */
+    comDeviceId: string;
     /** Serial baud rate if the type is 'serial' */
     baudRate: number | string;
     /** Serial data bits if the type is 'serial' */
