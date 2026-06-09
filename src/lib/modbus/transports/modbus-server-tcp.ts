@@ -52,6 +52,13 @@ export default class ModbusServerTcp extends ModbusServerCore {
 
         this.server.on('disconnect', s => this.emit('close', s.address()));
 
+        this.server.on('error', (e: Error): void => {
+            // e.g. EACCES on a privileged port without cap_net_bind_service, or EADDRINUSE.
+            // Without this listener Node would throw, crashing the whole adapter.
+            this.log.error(`Modbus server error on ${this.tcp.hostname}:${this.tcp.port}: ${e.message}`);
+            this.emit('error', e);
+        });
+
         this.server.listen(this.tcp.port, this.tcp.hostname, (): void => {
             this.log.debug(`server is listening on port ${this.tcp.hostname}:${this.tcp.port}`);
         });
