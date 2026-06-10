@@ -195,34 +195,30 @@ export default class Slave {
                     regs.lastStart = start;
                     regs.lastEnd = start + quantity;
                     regs.changed = false;
-                    const resp = new Array(Math.ceil(quantity / 16) * 2);
-                    let i = 0;
                     const data = this.modbusServer?.getCoils();
                     if (!data) {
                         return;
                     }
-                    let j;
-                    for (j = 0; j < resp.length && start + j < data.byteLength; j++) {
-                        resp[j] = data.readUInt8(start + j);
-                    }
-                    for (; j < resp.length; j++) {
-                        resp[j] = 0;
-                    }
-
-                    while (i < quantity && i + start < regs.addressHigh) {
-                        if (regs.values[i + start - regs.addressLow]) {
-                            resp[Math.floor(i / 8)] |= 1 << i % 8;
-                        } else {
-                            resp[Math.floor(i / 8)] &= ~(1 << i % 8);
-                        }
-                        i++;
-                    }
-                    const len = data.length;
-                    for (i = 0; i < resp.length; i++) {
-                        if (start + i >= len) {
+                    // `start` is a coil (bit) address, so the byte index is start >> 3, not start.
+                    // Write each requested coil to its absolute bit position in the buffer.
+                    for (let i = 0; i < quantity; i++) {
+                        const coil = start + i;
+                        if (coil >= regs.addressHigh) {
                             break;
                         }
-                        data.writeUInt8(resp[i], start + i);
+                        const byteIndex = coil >> 3;
+                        if (byteIndex >= data.length) {
+                            break;
+                        }
+                        const a = coil - regs.addressLow;
+                        const mask = 1 << (coil & 7);
+                        let byte = data.readUInt8(byteIndex);
+                        if (a >= 0 && regs.values[a]) {
+                            byte |= mask;
+                        } else {
+                            byte &= ~mask;
+                        }
+                        data.writeUInt8(byte, byteIndex);
                     }
                 }
             });
@@ -238,33 +234,30 @@ export default class Slave {
                     regs.lastStart = start;
                     regs.lastEnd = start + quantity;
                     regs.changed = false;
-                    const resp = new Array(Math.ceil(quantity / 16) * 2);
-                    let i = 0;
                     const data = this.modbusServer?.getDiscrete();
                     if (!data) {
                         return;
                     }
-                    let j;
-                    for (j = 0; j < resp.length && start + j < data.byteLength; j++) {
-                        resp[j] = data.readUInt8(start + j);
-                    }
-                    for (; j < resp.length; j++) {
-                        resp[j] = 0;
-                    }
-                    while (i < quantity && i + start < regs.addressHigh) {
-                        if (regs.values[i + start - regs.addressLow]) {
-                            resp[Math.floor(i / 8)] |= 1 << i % 8;
-                        } else {
-                            resp[Math.floor(i / 8)] &= ~(1 << i % 8);
-                        }
-                        i++;
-                    }
-                    const len = data.length;
-                    for (i = 0; i < resp.length; i++) {
-                        if (start + i >= len) {
+                    // `start` is a discrete-input (bit) address, so the byte index is start >> 3, not start.
+                    // Write each requested input to its absolute bit position in the buffer.
+                    for (let i = 0; i < quantity; i++) {
+                        const input = start + i;
+                        if (input >= regs.addressHigh) {
                             break;
                         }
-                        data.writeUInt8(resp[i], start + i);
+                        const byteIndex = input >> 3;
+                        if (byteIndex >= data.length) {
+                            break;
+                        }
+                        const a = input - regs.addressLow;
+                        const mask = 1 << (input & 7);
+                        let byte = data.readUInt8(byteIndex);
+                        if (a >= 0 && regs.values[a]) {
+                            byte |= mask;
+                        } else {
+                            byte &= ~mask;
+                        }
+                        data.writeUInt8(byte, byteIndex);
                     }
                 }
             });
