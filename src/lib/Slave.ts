@@ -151,13 +151,8 @@ export default class Slave {
                     },
                     deviceId: this.options.config.defaultDeviceId,
                     responseDelay: 100,
-                    coils: Buffer.alloc(
-                        (this.device.coils.addressHigh >> 3) + ((this.device.coils.addressHigh - 1) % 8 ? 1 : 0),
-                    ),
-                    discrete: Buffer.alloc(
-                        (this.device.disInputs.addressHigh >> 3) +
-                            ((this.device.disInputs.addressHigh - 1) % 8 ? 1 : 0),
-                    ),
+                    coils: Buffer.alloc((this.device.coils.addressHigh + 7) >> 3),
+                    discrete: Buffer.alloc((this.device.disInputs.addressHigh + 7) >> 3),
                     input: Buffer.alloc(this.device.inputRegs.addressHigh * 2),
                     holding: Buffer.alloc(this.device.holdingRegs.addressHigh * 2),
                 });
@@ -172,13 +167,8 @@ export default class Slave {
                         hostname: this.options.config.tcp.ip || '0.0.0.0',
                     },
                     responseDelay: 100,
-                    coils: Buffer.alloc(
-                        (this.device.coils.addressHigh >> 3) + ((this.device.coils.addressHigh - 1) % 8 ? 1 : 0),
-                    ),
-                    discrete: Buffer.alloc(
-                        (this.device.disInputs.addressHigh >> 3) +
-                            ((this.device.disInputs.addressHigh - 1) % 8 ? 1 : 0),
-                    ),
+                    coils: Buffer.alloc((this.device.coils.addressHigh + 7) >> 3),
+                    discrete: Buffer.alloc((this.device.disInputs.addressHigh + 7) >> 3),
                     input: Buffer.alloc(this.device.inputRegs.addressHigh * 2),
                     holding: Buffer.alloc(this.device.holdingRegs.addressHigh * 2),
                 });
