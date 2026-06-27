@@ -1,13 +1,16 @@
 import { Adapter, type AdapterOptions } from '@iobroker/adapter-core';
 import type * as Modbus from './types';
 import { join } from 'node:path';
-import { statSync, readdirSync, existsSync } from 'node:fs';
+import { statSync, readdirSync, existsSync, realpathSync } from 'node:fs';
 import type { PortInfo } from '@serialport/bindings-interface';
 import tsv2registers from './convert';
 
 import { Master } from './lib/Master'; // Get common adapter utils
 import Slave from './lib/Slave'; // Get common adapter utils
 let serialPortList: (() => Promise<PortInfo[]>) | null = null;
+
+/** A serial PortInfo enriched with a stable physical-USB-port identifier (from /dev/serial/by-path, Linux only) */
+type PortInfoExt = PortInfo & { byPath?: string };
 
 function sortByAddress(a: Modbus.Register, b: Modbus.Register): 1 | 0 | -1 {
     const ad = parseFloat(a._address as string);
@@ -439,26 +442,85 @@ export default class ModbusAdapter extends Adapter {
     }
 
     /**
-     * Build the list of attached USB serial devices, addressed by their stable vendor/product/serial ID.
-     * Only USB devices report a vendor ID; plain serial ports cannot be addressed this way and are skipped.
+     * Map each real serial device path (e.g. /dev/ttyUSB0) to its stable physical-USB-port name from
+     * /dev/serial/by-path (Linux only). Unlike pnpId (derived from VID/PID, identical for identical
+     * chips), by-path encodes the actual USB topology and differs per socket. Empty on other systems.
+     */
+    static getByPathMap(): Record<string, string> {
+        const dir = '/dev/serial/by-path';
+        const map: Record<string, string> = {};
+        try {
+            if (!existsSync(dir)) {
+                return map;
+            }
+            for (const name of readdirSync(dir)) {
+                try {
+                    map[realpathSync(join(dir, name))] = name;
+                } catch {
+                    // ignore broken symlink
+                }
+            }
+        } catch {
+            // ignore (non-Linux or no permission)
+        }
+        return map;
+    }
+
+    /** Enrich serial ports with a stable physical-USB-port id (by-path) where available */
+    static enrichPorts(ports: PortInfo[]): PortInfoExt[] {
+        const byPath = ModbusAdapter.getByPathMap();
+        return (ports || []).map(port => ({ ...port, byPath: byPath[port.path] }));
+    }
+
+    /**
+     * Build a stable, port-name-independent identifier for a USB serial device.
+     * Prefers the programmed serial number (unique per chip, survives re-plugging into any port).
+     * For identical chips without a unique serial number it falls back to the physical USB location:
+     * on Linux pnpId comes from /dev/serial/by-id and is the SAME for identical chips, so by-path is
+     * used there; on Windows pnpId encodes the physical port and is reliable. This binds to the USB
+     * socket, so it stays stable only while the chip remains plugged into the same physical port.
+     */
+    static makeDeviceId(port: PortInfoExt): string {
+        const base = `${port.vendorId || ''}:${port.productId || ''}`;
+        if (port.serialNumber) {
+            return `${base}:${port.serialNumber}`;
+        }
+        const isPosix = port.path.startsWith('/dev/');
+        const location = port.byPath || port.locationId || (isPosix ? port.path : port.pnpId) || port.path;
+        return `${base}@${location}`;
+    }
+
+    /** Human-readable label for the USB device dropdown, including the physical USB location */
+    static makeDeviceLabel(port: PortInfoExt): string {
+        const location = port.byPath || port.locationId || port.pnpId;
+        return `${port.manufacturer || 'Unknown'} (VID:${port.vendorId || '-'} PID:${port.productId || '-'}${port.serialNumber ? ` SN:${port.serialNumber}` : ''}) [${port.path}]${location ? ` @ ${location}` : ''}`;
+    }
+
+    /**
+     * Build the list of attached USB serial devices, addressed by their stable USB ID (serial number,
+     * or the physical USB location for identical chips without one). Plain serial ports that are not USB
+     * cannot be addressed this way and are skipped.
      */
     static listSerialDevices(ports: PortInfo[]): { label: string; value: string }[] {
-        const devices = (ports || [])
-            .filter(item => item.vendorId)
+        const devices = ModbusAdapter.enrichPorts(ports)
+            .filter(item => item.vendorId || item.pnpId?.toUpperCase().startsWith('USB'))
             .map(item => ({
-                label: `${item.manufacturer || 'Unknown'} (VID:${item.vendorId} PID:${item.productId || '-'}${item.serialNumber ? ` SN:${item.serialNumber}` : ''}) [${item.path}]`,
-                value: `${item.vendorId}:${item.productId || ''}:${item.serialNumber || ''}`,
+                label: ModbusAdapter.makeDeviceLabel(item),
+                value: ModbusAdapter.makeDeviceId(item),
             }));
         return devices.length ? devices : [{ label: 'No USB devices found', value: '' }];
     }
 
     /**
-     * Resolve the configured USB device ID (`vendorId:productId:serialNumber`) to the actual port path of
-     * the currently attached device, so the OS may reassign the path (COMx / ttyUSBx) freely on reboot.
-     * Returns an empty string if no matching device is connected.
+     * Resolve the configured USB device ID to the actual port path of the currently attached device,
+     * so the OS may reassign the path (COMx / ttyUSBx) freely on reboot. Matches on the stable device
+     * ID (serial number or physical USB location), and still understands legacy IDs that were stored
+     * as `vendorId:productId:serialNumber`. Returns an empty string if no matching device is connected.
      */
     async resolveSerialPort(deviceId: string): Promise<string> {
-        const [vendorId, productId, serialNumber] = (deviceId || '').split(':');
+        if (!deviceId) {
+            return '';
+        }
         if (!serialPortList) {
             try {
                 const sModule = await import('serialport');
@@ -469,14 +531,20 @@ export default class ModbusAdapter extends Adapter {
             }
         }
         try {
-            const ports = await serialPortList();
-            const match = ports.find(
-                item =>
-                    (item.vendorId || '').toLowerCase() === (vendorId || '').toLowerCase() &&
-                    (item.productId || '').toLowerCase() === (productId || '').toLowerCase() &&
-                    // serialNumber is not reported on every system; only match it when we have one
-                    (!serialNumber || (item.serialNumber || '') === serialNumber),
-            );
+            const ports = ModbusAdapter.enrichPorts(await serialPortList());
+            // Preferred: exact match on the stable device ID (includes the physical USB location)
+            let match = ports.find(item => ModbusAdapter.makeDeviceId(item) === deviceId);
+            if (!match && !deviceId.includes('@')) {
+                // Backward compatibility: legacy IDs stored as vendorId:productId:serialNumber
+                const [vendorId, productId, serialNumber] = deviceId.split(':');
+                match = ports.find(
+                    item =>
+                        (item.vendorId || '').toLowerCase() === (vendorId || '').toLowerCase() &&
+                        (item.productId || '').toLowerCase() === (productId || '').toLowerCase() &&
+                        // serialNumber is not reported on every system; only match it when we have one
+                        (!serialNumber || (item.serialNumber || '') === serialNumber),
+                );
+            }
             if (match) {
                 this.log.info(`Resolved USB device "${deviceId}" to port ${match.path}`);
                 return match.path;
