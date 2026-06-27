@@ -131,7 +131,7 @@ There are some programs in folder `test` to test the TCP communication:
 - mod_RSsim.exe is a slave simulator. It can be that you need [Microsoft Visual C++ 2008 SP1 Redistributable Package](https://www.microsoft.com/en-us/download/details.aspx?id=5582) to start it (because of a Side-By-Side error).
 
 ## Changelog
-### **WORK IN PROGRESS**
+### 7.4.0 (2026-06-27)
 - (@GermanBluefox) Allowed distinguishing two identical USB chips (same vendor/product, no serial number) by their physical USB port: device IDs now fall back to `/dev/serial/by-path` on Linux and to the pnpId/location elsewhere, and the dropdown label shows that location. Legacy `vendor:product:serial` IDs keep working.
 
 ### 7.3.0 (2026-05-29)
