@@ -211,9 +211,9 @@ export default class Slave {
 
                     while (i < quantity && i + start < regs.addressHigh) {
                         if (regs.values[i + start - regs.addressLow]) {
-                            resp[Math.floor(i / 8)] |= 1 << i % 8;
+                            resp[Math.floor(i / 8)] |= 1 << (i % 8);
                         } else {
-                            resp[Math.floor(i / 8)] &= ~(1 << i % 8);
+                            resp[Math.floor(i / 8)] &= ~(1 << (i % 8));
                         }
                         i++;
                     }
@@ -253,9 +253,9 @@ export default class Slave {
                     }
                     while (i < quantity && i + start < regs.addressHigh) {
                         if (regs.values[i + start - regs.addressLow]) {
-                            resp[Math.floor(i / 8)] |= 1 << i % 8;
+                            resp[Math.floor(i / 8)] |= 1 << (i % 8);
                         } else {
-                            resp[Math.floor(i / 8)] &= ~(1 << i % 8);
+                            resp[Math.floor(i / 8)] &= ~(1 << (i % 8));
                         }
                         i++;
                     }

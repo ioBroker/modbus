@@ -63,7 +63,7 @@ const defaultParams = {
     sslRejectUnauthorized: true,
 };
 
-export { tsv2registers, Modbus };
+export { tsv2registers, type Modbus };
 
 // Extract from object the attribute by path
 function getParam(obj: Record<string, any>, path: string): any {
@@ -1150,10 +1150,10 @@ export default class ModbusAdapter extends Adapter {
                     } else {
                         config[i].offset = offset || 0;
                     }
-                    let factor: number | string = config[i].factor as any;
+                    const factor: number | string = config[i].factor;
                     if (typeof factor === 'string') {
-                        factor = factor.replace(',', '.');
-                        config[i].factor = parseFloat(factor) || 1;
+                        const factorStr = (factor as string).replace(',', '.');
+                        config[i].factor = parseFloat(factorStr) || 1;
                     } else if (typeof factor !== 'number') {
                         config[i].factor = 1;
                     } else {

@@ -132,10 +132,10 @@ export default class ModbusServerCore extends EventEmitter {
 
                 for (let totalBitCount = start; totalBitCount < start + quantity; totalBitCount += 1) {
                     const buf = mem.readUInt8(Math.floor(totalBitCount / 8));
-                    const mask = 1 << totalBitCount % 8;
+                    const mask = 1 << (totalBitCount % 8);
 
                     if (buf & mask) {
-                        val += 1 << thisByteBitCount % 8;
+                        val += 1 << (thisByteBitCount % 8);
                     }
 
                     thisByteBitCount += 1;
@@ -178,10 +178,10 @@ export default class ModbusServerCore extends EventEmitter {
 
                 for (let totalBitCount = start; totalBitCount < start + quantity; totalBitCount += 1) {
                     const buf = mem.readUInt8(Math.floor(totalBitCount / 8));
-                    const mask = 1 << totalBitCount % 8;
+                    const mask = 1 << (totalBitCount % 8);
 
                     if (buf & mask) {
-                        val += 1 << thisByteBitCount % 8;
+                        val += 1 << (thisByteBitCount % 8);
                     }
 
                     thisByteBitCount += 1;
