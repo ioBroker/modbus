@@ -131,6 +131,12 @@ There are some programs in folder `test` to test the TCP communication:
 - mod_RSsim.exe is a slave simulator. It can be that you need [Microsoft Visual C++ 2008 SP1 Redistributable Package](https://www.microsoft.com/en-us/download/details.aspx?id=5582) to start it (because of a Side-By-Side error).
 
 ## Changelog
+### **WORK IN PROGRESS**
+- (@johannes-lode) Fixed FC1 coil reads returning stale data: the slave now refreshes the coil buffer before responding (event name matched the listener)
+- (@johannes-lode) Fixed the TCP slave crashing on server listen errors (e.g. address already in use or privileged port without permission); such errors are now logged instead
+- (@johannes-lode) Fixed coil/discrete-input reads being written to the wrong buffer bit for start addresses other than 0
+- (@johannes-lode) Fixed the coil/discrete-input buffer size when the highest address is a multiple of 8 (`ceil(addressHigh / 8)`)
+
 ### 7.4.0 (2026-06-27)
 - (@GermanBluefox) Allowed distinguishing two identical USB chips (same vendor/product, no serial number) by their physical USB port: device IDs now fall back to `/dev/serial/by-path` on Linux and to the pnpId/location elsewhere, and the dropdown label shows that location. Legacy `vendor:product:serial` IDs keep working.
 
