@@ -50,6 +50,7 @@
         "LICENSE"
     ],
     "scripts": {
+        "prepare": "npm run build",
         "prepublishOnly": "npm run build",
         "lint": "eslint -c eslint.config.mjs",
         "build": "tsc -p tsconfig.build.json && node tasks",

@@ -116,7 +116,7 @@ export default class ModbusServerCore extends EventEmitter {
             const start = pdu.readUInt16BE(1);
             const quantity = pdu.readUInt16BE(3);
 
-            this.emit('preReadCoilsRequest', start, quantity);
+            this.emit('readCoilsRequest', start, quantity);
 
             const mem = this.getCoils();
 
