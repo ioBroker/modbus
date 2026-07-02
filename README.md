@@ -131,7 +131,7 @@ There are some programs in folder `test` to test the TCP communication:
 - mod_RSsim.exe is a slave simulator. It can be that you need [Microsoft Visual C++ 2008 SP1 Redistributable Package](https://www.microsoft.com/en-us/download/details.aspx?id=5582) to start it (because of a Side-By-Side error).
 
 ## Changelog
-### **WORK IN PROGRESS**
+### 7.5.0 (2026-07-02)
 - (@GermanBluefox) Added a proxy mode (issue #775): a master instance can additionally serve its polled data as a Modbus TCP slave and forward client writes back to the device (`proxy`/`proxyBind`/`proxyPort`)
 
 ### 7.4.2 (2026-07-02)
