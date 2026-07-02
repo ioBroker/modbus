@@ -35,6 +35,12 @@ export default class Slave {
     private adapter: ioBroker.Adapter;
     private options: Options;
     private readonly connectionId: string;
+    /**
+     * ack flag for states written by connected TCP masters:
+     * `true` in slave mode (the slave is authoritative), `false` in proxy mode
+     * (a client write is a command that is forwarded to the real device via the master).
+     */
+    private readonly writeAck: boolean;
 
     constructor(options: Options, adapter: ioBroker.Adapter) {
         this.objects = options.objects;
@@ -43,6 +49,8 @@ export default class Slave {
         this.options = options;
         // In proxy mode the master owns info.connection (device link); the slave server reports its clients separately
         this.connectionId = options.config.proxy ? 'info.connectionSlave' : 'info.connection';
+        // In proxy mode a client write must reach the real device: set ack=false so stateChange -> master.write() runs
+        this.writeAck = !options.config.proxy;
 
         void adapter.setState(this.connectionId, '', true);
 
@@ -329,7 +337,7 @@ export default class Slave {
                     void this.adapter.setState(
                         regs.mapping[a],
                         value,
-                        true,
+                        this.writeAck,
                         err =>
                             // analyse if the state could be set (because of permissions)
                             err && this.adapter.log.error(`Can not set state: ${err.message}`),
@@ -359,7 +367,7 @@ export default class Slave {
                         void this.adapter.setState(
                             regs.mapping[a],
                             !!value,
-                            true,
+                            this.writeAck,
                             err =>
                                 // analyse if the state could be set (because of permissions)
                                 err && this.adapter.log.error(`Can not set state: ${err.message}`),
@@ -394,7 +402,7 @@ export default class Slave {
                         void this.adapter.setState(
                             regs.mapping[a],
                             val,
-                            true,
+                            this.writeAck,
                             err =>
                                 // analyse if the state could be set (because of permissions)
                                 err && this.adapter.log.error(`Can not set state: ${err.message}`),
@@ -437,7 +445,7 @@ export default class Slave {
                             void this.adapter.setState(
                                 regs.mapping[a],
                                 val,
-                                true,
+                                this.writeAck,
                                 err =>
                                     // analyze if the state could be set (because of permissions)
                                     err && this.adapter.log.error(`Can not set state: ${err.message}`),

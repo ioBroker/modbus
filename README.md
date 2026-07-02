@@ -132,7 +132,7 @@ There are some programs in folder `test` to test the TCP communication:
 
 ## Changelog
 ### **WORK IN PROGRESS**
-- (@GermanBluefox) Added a proxy mode (issue #775): a master instance can additionally serve its polled data as a Modbus TCP slave (`proxy`/`proxyBind`/`proxyPort`)
+- (@GermanBluefox) Added a proxy mode (issue #775): a master instance can additionally serve its polled data as a Modbus TCP slave and forward client writes back to the device (`proxy`/`proxyBind`/`proxyPort`)
 
 ### 7.4.2 (2026-07-02)
 - (@GermanBluefox) Fixed `Put.floatle()` to write a valid IEEE-754 little-endian float and to stop dropping data written after it
