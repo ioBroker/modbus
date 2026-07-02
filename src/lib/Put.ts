@@ -90,18 +90,8 @@ export default class Put {
 
             const wordTyped = word as { endian?: 'little' | 'big'; bytes: number | 'float'; value: number };
             if (wordTyped.bytes === 'float') {
-                // s * f * 2^e
-                const v = Math.abs(wordTyped.value);
-                const s = wordTyped.value >= 0 ? 1 : 0;
-                const e = Math.ceil(Math.log(v) / Math.LN2);
-                const f = v / (1 << e);
-
-                // s:1, e:7, f:23
-                // [seeeeeee][efffffff][ffffffff][ffffffff]
-                buf[offset++] = (s << 7) & ~~(e / 2);
-                buf[offset++] = ((e & 1) << 7) & ~~(f / (1 << 16));
-                buf[offset++] = 0;
-                buf[offset++] = 0;
+                // IEEE-754 single precision (32-bit), little-endian
+                buf.writeFloatLE(wordTyped.value, offset);
                 offset += 4;
             } else {
                 const big = wordTyped.endian === 'big';
