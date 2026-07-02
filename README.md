@@ -131,6 +131,9 @@ There are some programs in folder `test` to test the TCP communication:
 - mod_RSsim.exe is a slave simulator. It can be that you need [Microsoft Visual C++ 2008 SP1 Redistributable Package](https://www.microsoft.com/en-us/download/details.aspx?id=5582) to start it (because of a Side-By-Side error).
 
 ## Changelog
+### **WORK IN PROGRESS**
+- (@GermanBluefox) Added a proxy mode (issue #775): a master instance can additionally serve its polled data as a Modbus TCP slave (`proxy`/`proxyBind`/`proxyPort`)
+
 ### 7.4.2 (2026-07-02)
 - (@GermanBluefox) Fixed `Put.floatle()` to write a valid IEEE-754 little-endian float and to stop dropping data written after it
 - (@GermanBluefox) Added unit tests for the Modbus packet builder (`Put`) and the CRC-16/MODBUS checksum

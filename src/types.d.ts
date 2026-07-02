@@ -135,6 +135,16 @@ export type SlaveDevice = {
     holdingRegs: DeviceSlaveOption;
 };
 
+/** In proxy mode every register block carries BOTH the master polling structures and the slave serving buffer */
+export interface DeviceProxyOption extends DeviceMasterOption, DeviceSlaveOption {}
+
+export type ProxyDevice = {
+    disInputs: DeviceProxyOption;
+    coils: DeviceProxyOption;
+    inputRegs: DeviceProxyOption;
+    holdingRegs: DeviceProxyOption;
+};
+
 export interface Options {
     config: {
         type: ModbusTransport;
@@ -149,6 +159,14 @@ export interface Options {
         doNotUseWriteMultipleRegisters: boolean;
         onlyUseWriteMultipleRegisters: boolean;
         multiDeviceId?: boolean;
+
+        /** Proxy mode: poll as master AND expose the polled data via a built-in Modbus TCP slave server */
+        proxy?: boolean;
+        /** TCP server endpoint of the built-in slave in proxy mode (separate from the master client endpoint) */
+        proxyTcp?: {
+            port: number;
+            ip?: string;
+        };
 
         // Only for master
         poll?: number;
@@ -184,7 +202,7 @@ export interface Options {
         };
     };
     devices: {
-        [deviceId: number]: MasterDevice | SlaveDevice;
+        [deviceId: number]: MasterDevice | SlaveDevice | ProxyDevice;
     };
     objects: { [id: string]: ioBroker.StateObject | null | undefined };
 }
@@ -219,6 +237,12 @@ export interface ModbusParameters {
     timeout?: number | string;
     /** Adapter role: `"0"` = master, `"1"` = slave. Default: `"0"` (master) */
     slave?: '0' | '1';
+    /** Proxy mode (master only): poll as master and additionally serve the same data as a Modbus TCP slave */
+    proxy?: boolean | 'true';
+    /** TCP bind address for the built-in slave server in proxy mode. Default: `"0.0.0.0"` */
+    proxyBind?: string;
+    /** TCP port for the built-in slave server in proxy mode. Default: 502 */
+    proxyPort?: number | string;
     /** Poll interval in ms (master mode). Default: 1000 */
     poll?: number | string;
     /** Reconnect interval in ms after connection loss (master mode) */

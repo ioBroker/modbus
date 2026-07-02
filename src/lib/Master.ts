@@ -30,6 +30,9 @@ export class Master {
 
     private readonly showDebug: boolean;
 
+    /** Optional bridge callback (proxy mode): invoked after each polled value is written to its state */
+    public onUpdate?: (fullId: string, val: ioBroker.StateValue) => void;
+
     constructor(options: Options, adapter: ioBroker.Adapter) {
         this.adapter = adapter;
         this.options = options;
@@ -329,6 +332,8 @@ export class Master {
                             // analyze if the state could be set (because of permissions)
                             err && this.adapter.log.error(`Can not set state ${id}: ${err}`);
                         });
+                        // Proxy bridge: mirror the polled value into the built-in slave server
+                        this.onUpdate?.(regs.config[n].fullId, val);
                     }
                 }
             } else {
@@ -606,6 +611,8 @@ export class Master {
                                         // analyze if the state could be set (because of permissions)
                                         err && this.adapter.log.error(`Can not set state ${id}: ${err}`),
                                 );
+                                // Proxy bridge: mirror the polled value into the built-in slave server
+                                this.onUpdate?.(regs.config[n].fullId, val);
                             }
                         } catch (err) {
                             this.adapter.log.error(`Can not set value: ${err.message}`);

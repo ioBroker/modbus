@@ -163,6 +163,8 @@ export default class ModbusAdapter extends Adapter {
         rawhex: 0,
     };
     modbus: Master | Slave | null = null;
+    /** In proxy mode the built-in TCP slave server runs alongside the master */
+    private proxySlave: Slave | null = null;
 
     public constructor(
         adapterName: string,
@@ -385,6 +387,10 @@ export default class ModbusAdapter extends Adapter {
         if (this.modbus) {
             this.modbus.close();
             this.modbus = null;
+        }
+        if (this.proxySlave) {
+            this.proxySlave.close();
+            this.proxySlave = null;
         }
 
         if (this.setState && this.config?.params) {
@@ -689,6 +695,9 @@ export default class ModbusAdapter extends Adapter {
             options.config.multiDeviceId = params.multiDeviceId === true || params.multiDeviceId === 'true';
         }
 
+        // Proxy mode: a master that additionally serves its polled data as a Modbus TCP slave
+        options.config.proxy = !options.config.slave && (params.proxy === true || params.proxy === 'true');
+
         const deviceIds: number[] = [];
         this.checkDeviceIds(options, this.config.disInputs, deviceIds);
         this.checkDeviceIds(options, this.config.coils, deviceIds);
@@ -751,6 +760,14 @@ export default class ModbusAdapter extends Adapter {
                 dataBits: parseInt(params.dataBits as string, 10) as 5 | 6 | 7 | 8,
                 stopBits: parseInt(params.stopBits as string, 10) as 1 | 2,
                 parity: params.parity,
+            };
+        }
+
+        // In proxy mode the built-in slave listens on its own TCP endpoint (independent of the master transport)
+        if (options.config.proxy) {
+            options.config.proxyTcp = {
+                port: parseInt(params.proxyPort as string, 10) || 502,
+                ip: params.proxyBind || '0.0.0.0',
             };
         }
 
@@ -852,6 +869,16 @@ export default class ModbusAdapter extends Adapter {
                         offset: parseInt(params.holdingRegsOffset as string, 10),
                     },
                 };
+            }
+
+            if (options.config.proxy) {
+                // Proxy: augment the master-shaped device with the slave serving buffer (values/mapping/changed)
+                const dev = options.devices[deviceId] as unknown as Modbus.ProxyDevice;
+                (['disInputs', 'coils', 'inputRegs', 'holdingRegs'] as const).forEach(rt => {
+                    dev[rt].changed = true;
+                    dev[rt].values = [];
+                    dev[rt].mapping = {};
+                });
             }
         }
 
@@ -1423,7 +1450,7 @@ export default class ModbusAdapter extends Adapter {
             this.checkObjects('inputRegs', 'inputRegisters', 'Input registers', tasks, newObjects, deviceId);
             this.checkObjects('holdingRegs', 'holdingRegisters', 'Holding registers', tasks, newObjects, deviceId);
 
-            if (options.config.slave) {
+            if (options.config.slave || options.config.proxy) {
                 device.disInputs.fullIds = this.config.disInputs
                     .filter(e => e.deviceId === deviceId)
                     .map(e => (e as Modbus.RegisterInternal).fullId);
@@ -1486,6 +1513,27 @@ export default class ModbusAdapter extends Adapter {
 
         newObjects.push(`${this.namespace}.info.connection`);
 
+        // In proxy mode create a separate connection state for the built-in slave server (list of connected masters)
+        if (options.config.proxy) {
+            const slaveConnObj = await this.getObjectAsync('info.connectionSlave');
+            if (!slaveConnObj) {
+                await this.setObjectAsync('info.connectionSlave', {
+                    type: 'state',
+                    common: {
+                        name: 'Connected masters (proxy slave server)',
+                        role: 'indicator.connected',
+                        write: false,
+                        read: true,
+                        type: 'string',
+                        def: '',
+                    },
+                    native: {},
+                });
+            }
+            await this.setStateAsync('info.connectionSlave', '', true);
+            newObjects.push(`${this.namespace}.info.connectionSlave`);
+        }
+
         // clear unused states
         for (const id_ in oldObjects) {
             if (
@@ -1509,11 +1557,26 @@ export default class ModbusAdapter extends Adapter {
     async main(): Promise<void> {
         this.infoRegExp = new RegExp(`${this.namespace.replace('.', '\\.')}\\.info\\.`);
         const options = await this.parseConfig();
-        if (options.config.slave) {
+        if (options.config.proxy) {
+            // Proxy: run the master (polls the device) and a built-in TCP slave (serves the data) together
+            const master = new Master(options, this);
+            const slave = new Slave(options, this);
+            // Bridge: every polled value is mirrored into the slave's served buffer
+            master.onUpdate = (fullId, val): void => {
+                if (this.objects[fullId]) {
+                    void slave.write(fullId, { val }).catch(err => this.log.error(`Proxy bridge: ${err}`));
+                }
+            };
+            this.modbus = master;
+            this.proxySlave = slave;
+            master.start();
+            slave.start();
+        } else if (options.config.slave) {
             this.modbus = new Slave(options, this);
+            this.modbus.start();
         } else {
             this.modbus = new Master(options, this);
+            this.modbus.start();
         }
-        this.modbus.start();
     }
 }

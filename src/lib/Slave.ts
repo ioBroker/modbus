@@ -34,14 +34,17 @@ export default class Slave {
     private modbusServer: ModbusServerTcp | ModbusServerSerial | null = null;
     private adapter: ioBroker.Adapter;
     private options: Options;
+    private readonly connectionId: string;
 
     constructor(options: Options, adapter: ioBroker.Adapter) {
         this.objects = options.objects;
         this.device = options.devices[Object.keys(options.devices).map(id => parseInt(id, 10))[0]] as SlaveDevice;
         this.adapter = adapter;
         this.options = options;
+        // In proxy mode the master owns info.connection (device link); the slave server reports its clients separately
+        this.connectionId = options.config.proxy ? 'info.connectionSlave' : 'info.connection';
 
-        void adapter.setState('info.connection', '', true);
+        void adapter.setState(this.connectionId, '', true);
 
         // read all other states and set alive to false
         void adapter.getForeignStatesAsync(`${adapter.namespace}.info.clients.*`).then(async allStates => {
@@ -59,7 +62,7 @@ export default class Slave {
         });
     }
 
-    write(id: string, state: ioBroker.State): Promise<void> {
+    write(id: string, state: Partial<ioBroker.State>): Promise<void> {
         if (!this.objects[id] || !this.objects[id].native) {
             this.adapter.log.error(`Can not set state ${id}: unknown object`);
             return Promise.resolve();
@@ -135,7 +138,7 @@ export default class Slave {
             // this.device.holdingRegs ||= { addressHigh: 1 };
             const logWrapper = createLoggingWrapper(this.adapter.log, this.options.config.disableLogging);
 
-            if (this.options.config.type === 'serial') {
+            if (!this.options.config.proxy && this.options.config.type === 'serial') {
                 if (!this.options.config.serial) {
                     throw new Error('Serial is required');
                 }
@@ -157,14 +160,16 @@ export default class Slave {
                     holding: Buffer.alloc(this.device.holdingRegs.addressHigh * 2),
                 });
             } else {
-                if (!this.options.config.tcp) {
+                // In proxy mode the built-in slave always serves over TCP on its own endpoint
+                const serverTcp = this.options.config.proxy ? this.options.config.proxyTcp : this.options.config.tcp;
+                if (!serverTcp) {
                     throw new Error('TCP options is required');
                 }
                 this.modbusServer = new ModbusServerTcp({
                     logger: logWrapper,
                     tcp: {
-                        port: this.options.config.tcp.port || 502,
-                        hostname: this.options.config.tcp.ip || '0.0.0.0',
+                        port: serverTcp.port || 502,
+                        hostname: serverTcp.ip || '0.0.0.0',
                     },
                     responseDelay: 100,
                     coils: Buffer.alloc((this.device.coils.addressHigh + 7) >> 3),
@@ -480,9 +485,9 @@ export default class Slave {
                         }
 
                         this.adapter.log.debug(`+ Clients connected: ${list.join(', ')}`);
-                        void this.adapter.setState('info.connection', list.join(','), true);
+                        void this.adapter.setState(this.connectionId, list.join(','), true);
                     } else {
-                        void this.adapter.setState('info.connection', '', true);
+                        void this.adapter.setState(this.connectionId, '', true);
                     }
                 })
                 .on('close', async () => {
@@ -501,7 +506,7 @@ export default class Slave {
                         }
                     }
 
-                    void this.adapter.setState('info.connection', list ? list.join(',') : '', true);
+                    void this.adapter.setState(this.connectionId, list ? list.join(',') : '', true);
                 })
                 .on('error', async err => {
                     const list = this.modbusServer?.getClients();
@@ -519,7 +524,7 @@ export default class Slave {
                         }
                     }
 
-                    void this.adapter.setState('info.connection', list ? list.join(',') : '', true);
+                    void this.adapter.setState(this.connectionId, list ? list.join(',') : '', true);
                     this.adapter.log.warn(`Error on connection: ${JSON.stringify(err)}`);
                 });
         }
