@@ -693,6 +693,34 @@ export default class ModbusAdapter extends Adapter {
 
         if (!options.config.slave) {
             options.config.multiDeviceId = params.multiDeviceId === true || params.multiDeviceId === 'true';
+
+            // Per-device settings (issue #605): { [deviceId]: { timeout?, waitTime? } }
+            const rawTimeouts = this.config.deviceTimeouts;
+            if (rawTimeouts && typeof rawTimeouts === 'object') {
+                const map: { [deviceId: number]: { timeout?: number; waitTime?: number } } = {};
+                for (const key of Object.keys(rawTimeouts)) {
+                    const id = parseInt(key, 10);
+                    if (isNaN(id)) {
+                        continue;
+                    }
+                    const entry = rawTimeouts[key] as { timeout?: number | string; waitTime?: number | string };
+                    const timeout = parseInt(entry?.timeout as string, 10);
+                    const waitTime = parseInt(entry?.waitTime as string, 10);
+                    const parsed: { timeout?: number; waitTime?: number } = {};
+                    if (!isNaN(timeout) && timeout > 0) {
+                        parsed.timeout = timeout;
+                    }
+                    if (!isNaN(waitTime) && waitTime >= 0) {
+                        parsed.waitTime = waitTime;
+                    }
+                    if (parsed.timeout !== undefined || parsed.waitTime !== undefined) {
+                        map[id] = parsed;
+                    }
+                }
+                if (Object.keys(map).length) {
+                    options.config.deviceTimeouts = map;
+                }
+            }
         }
 
         // Proxy mode: a master that additionally serves its polled data as a Modbus TCP slave

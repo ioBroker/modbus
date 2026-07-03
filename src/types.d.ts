@@ -159,6 +159,11 @@ export interface Options {
         doNotUseWriteMultipleRegisters: boolean;
         onlyUseWriteMultipleRegisters: boolean;
         multiDeviceId?: boolean;
+        /**
+         * Per-device settings, keyed by Modbus device/unit ID (issue #605).
+         * `timeout` overrides the global `timeout`, `waitTime` overrides the global `waitTime` for that device.
+         */
+        deviceTimeouts?: { [deviceId: number]: { timeout?: number; waitTime?: number } };
 
         /** Proxy mode: poll as master AND expose the polled data via a built-in Modbus TCP slave server */
         proxy?: boolean;
@@ -424,4 +429,10 @@ export interface ModbusAdapterConfig extends ioBroker.AdapterConfig {
     coils: Register[];
     inputRegs: Register[];
     holdingRegs: Register[];
+
+    /**
+     * Per-device settings, keyed by Modbus device/unit ID (issue #605).
+     * Only used in master mode with `multiDeviceId`; `timeout`/`waitTime` override the global values for the given device.
+     */
+    deviceTimeouts?: { [deviceId: string]: { timeout?: number; waitTime?: number } };
 }

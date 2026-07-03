@@ -132,6 +132,7 @@ There are some programs in folder `test` to test the TCP communication:
 
 ## Changelog
 ### **WORK IN PROGRESS**
+- (@GermanBluefox) Added per-device timeout and wait time (issue #605): a master with `multiDeviceId` can define an individual request timeout and inter-request wait time per Modbus device/unit ID (`deviceTimeouts`), overriding the global values for slow devices
 - (@GermanBluefox) Fixed the TCP/SSL master not recovering after a communication loss (issue #594): the receive buffer is now cleared and the socket recreated on every reconnect, so a frame that was cut off by the disconnect can no longer desync the parser and permanently break polling. SSL reconnect (which never recreated its socket) now works at all
 - (@GermanBluefox) Fixed cyclic write of non-polled holding registers in immediate-write mode (`maxBlock < 2`): CW-only registers are now written every poll cycle instead of being silently skipped (follow-up to issue #771)
 

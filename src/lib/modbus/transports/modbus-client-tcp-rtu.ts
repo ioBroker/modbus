@@ -40,6 +40,7 @@ export default class ModbusClientTcpRtu extends ModbusClientCore {
         unitId?: number;
         logger: ioBroker.Logger;
         timeout?: number;
+        deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
     }) {
         super(options);
 

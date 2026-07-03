@@ -85,12 +85,19 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
     private reqFifo: ModbusRequest[] = [];
     private readonly timeout: number;
+    /** Optional per-device settings, keyed by unitId. `timeout` overrides `timeout` for that device (issue #605) */
+    private readonly deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
     private currentState: ModbusFcState = 'init';
 
-    protected constructor(options: { logger: ioBroker.Logger; timeout?: number }) {
+    protected constructor(options: {
+        logger: ioBroker.Logger;
+        timeout?: number;
+        deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
+    }) {
         super();
         this.log = options.logger;
         this.timeout ||= options.timeout || 5 * 1000; // 5s
+        this.deviceTimeouts = options.deviceTimeouts;
 
         this.on('data', this.onData);
         this.on('newState_ready', this.flush);
@@ -129,13 +136,16 @@ export default abstract class ModbusClientCore extends EventEmitter {
         if (this.reqFifo.length) {
             this.currentRequest = this.reqFifo.shift()!;
 
+            // Per-device timeout overrides the global one for this unit ID (issue #605)
+            const timeout = this.deviceTimeouts?.[this.currentRequest.unitId]?.timeout || this.timeout;
+
             this.currentRequest.timeout = setTimeout(() => {
                 this.currentRequest!.timeout = undefined;
-                this.currentRequest!.cb?.({ message: 'timeout', timeout: this.timeout });
+                this.currentRequest!.cb?.({ message: 'timeout', timeout });
                 this.emit('trashCurrentRequest');
                 this.log.error('Request timed out.');
                 this.setState('error');
-            }, this.timeout);
+            }, timeout);
 
             this.setState('waiting');
             this.emit('send', this.currentRequest.pdu, this.currentRequest.unitId);

@@ -66,6 +66,7 @@ export class Master {
                     },
                     logger: logWrapper,
                     timeout: options.config.timeout,
+                    deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
                 });
             } catch (e) {
@@ -105,6 +106,7 @@ export class Master {
                     ssl: sslConfig,
                     logger: logWrapper,
                     timeout: options.config.timeout,
+                    deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
                 });
             } catch (e) {
@@ -126,6 +128,7 @@ export class Master {
                     },
                     logger: logWrapper,
                     timeout: options.config.timeout,
+                    deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
                 });
             } catch (e) {
@@ -150,6 +153,7 @@ export class Master {
                     },
                     logger: logWrapper,
                     timeout: options.config.timeout,
+                    deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.multiDeviceId ? undefined : options.config.defaultDeviceId,
                 });
             } catch (e) {
@@ -871,7 +875,9 @@ export class Master {
             } catch (err) {
                 anyError = err;
             }
-            await this.#waitAsync(this.options.config.waitTime);
+            // Per-device wait time overrides the global one for this device (issue #605)
+            const waitTime = this.options.config.deviceTimeouts?.[id]?.waitTime ?? this.options.config.waitTime;
+            await this.#waitAsync(waitTime);
         }
         if (anyError) {
             if (!this.reconnectTimeout) {

@@ -42,6 +42,7 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
         unitId?: number;
         logger: ioBroker.Logger;
         timeout?: number;
+        deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
     }) {
         super(options);
         this.setState('init');
