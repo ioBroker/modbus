@@ -135,6 +135,9 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@GermanBluefox) Added Modbus/UDP master support (issue #222): a new `'udp'` connection type served by a UDP datagram transport that reuses the Modbus/TCP MBAP framing (one datagram per request/response)
+
 ### 7.5.3 (2026-07-03)
 - (@GermanBluefox) Fixed a log flood when a device answers a combined read block with fewer registers than requested (issue #502): the short response is now reported with a single clear warning and the registers that were actually returned are still stored, instead of throwing `The value of "offset" is out of range` once per register
 

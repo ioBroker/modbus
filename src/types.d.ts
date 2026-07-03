@@ -94,7 +94,7 @@ export interface RegisterInternal extends Omit<Register, '_address' | 'len' | 'f
     factor: number;
 }
 export type RegisterType = 'disInputs' | 'coils' | 'inputRegs' | 'holdingRegs';
-export type ModbusTransport = 'tcp' | 'serial' | 'tcprtu' | 'tcp-ssl';
+export type ModbusTransport = 'tcp' | 'udp' | 'serial' | 'tcprtu' | 'tcp-ssl';
 
 interface DeviceOption {
     fullIds: string[];

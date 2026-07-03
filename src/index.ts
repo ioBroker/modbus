@@ -762,7 +762,7 @@ export default class ModbusAdapter extends Adapter {
         options.config.disableLogging = params.disableLogging;
         options.config.enableSanitization = !!params.enableSanitization;
 
-        if (params.type === 'tcp' || params.type === 'tcprtu' || params.type === 'tcp-ssl') {
+        if (params.type === 'tcp' || params.type === 'udp' || params.type === 'tcprtu' || params.type === 'tcp-ssl') {
             options.config.tcp = {
                 port: parseInt(params.port as string, 10) || 502,
                 ip: params.slave === '1' ? params.bind : params.host,

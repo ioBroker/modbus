@@ -3,6 +3,7 @@ import { extractValue, writeValue } from './common';
 import type { ModbusReadResultBinary } from './modbus/modbus-client-core';
 import ModbusClientSerial from './modbus/transports/modbus-client-serial';
 import ModbusClientTcp from './modbus/transports/modbus-client-tcp';
+import ModbusClientUdp from './modbus/transports/modbus-client-udp';
 import ModbusClientTcpRtu from './modbus/transports/modbus-client-tcp-rtu';
 import ModbusClientTcpSsl from './modbus/transports/modbus-client-tcp-ssl';
 import { createLoggingWrapper } from './loggingUtils';
@@ -71,6 +72,28 @@ export class Master {
                 });
             } catch (e) {
                 adapter.log.error(`Cannot connect to "${tcp.ip}:${tcp.port || 502}": ${e}`);
+            }
+        } else if (options.config.type === 'udp') {
+            const tcp = options.config.tcp;
+            if (!tcp || !tcp.ip || tcp.ip === '0.0.0.0') {
+                adapter.log.error('IP address is not defined');
+                return;
+            }
+            try {
+                const logWrapper = createLoggingWrapper(adapter.log, options.config.disableLogging);
+                this.modbusClient = new ModbusClientUdp({
+                    udp: {
+                        host: tcp.ip,
+                        port: tcp.port || 502,
+                        autoReconnect: false,
+                    },
+                    logger: logWrapper,
+                    timeout: options.config.timeout,
+                    deviceTimeouts: options.config.deviceTimeouts,
+                    unitId: options.config.defaultDeviceId,
+                });
+            } catch (e) {
+                adapter.log.error(`Cannot connect to "${tcp.ip}:${tcp.port || 502}" (UDP): ${e}`);
             }
         } else if (options.config.type === 'tcp-ssl') {
             const tcp = options.config.tcp;
@@ -172,7 +195,7 @@ export class Master {
         this.modbusClient
             .on('connect', () => {
                 if (!this.connected) {
-                    if (options.config.type === 'tcp') {
+                    if (options.config.type === 'tcp' || options.config.type === 'udp') {
                         adapter.log.info(`Connected to slave ${options.config.tcp?.ip}`);
                     } else {
                         adapter.log.info('Connected to slave');
