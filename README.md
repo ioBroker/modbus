@@ -135,7 +135,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.6.0 (2026-07-03)
 - (@GermanBluefox) Added Modbus/UDP master support (issue #222): a new `'udp'` connection type served by a UDP datagram transport that reuses the Modbus/TCP MBAP framing (one datagram per request/response)
 
 ### 7.5.3 (2026-07-03)
