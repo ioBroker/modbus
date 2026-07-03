@@ -439,9 +439,30 @@ export class Master {
                     this.adapter.log.debug(`[DevID_${regs.deviceId}/${regType}] Poll address ${regBlock.start} DONE`);
                 }
                 if (response.payload?.length) {
+                    // Guard against a short/truncated device response: some devices (or noisy RS485
+                    // links) answer with fewer registers than were requested, or do not implement
+                    // every address in a combined block. Reading past the returned buffer would throw
+                    // "The value of 'offset' is out of range" once per affected register (issue #502).
+                    const expectedBytes = regBlock.count * 2;
+                    if (response.payload.length < expectedBytes) {
+                        this.adapter.log.warn(
+                            `[DevID_${regs.deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ` +
+                                `device returned only ${response.payload.length >> 1} of ${regBlock.count} requested registers. ` +
+                                `Some addresses in this block may not exist on the device — reduce "Max block size" or set ` +
+                                `"Max address gap to combine" to 0 (issues #502/#581). Registers beyond the returned data are skipped.`,
+                        );
+                    }
+
                     // first process all the scale factor values inside the block
                     for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
                         if (!regs.config[n].poll && regType === 'holdingRegs') {
+                            continue;
+                        }
+                        // Skip registers that lie beyond a short response (see guard above, issue #502)
+                        if (
+                            (regs.config[n].address - regBlock.start + regs.config[n].len) * 2 >
+                            response.payload.length
+                        ) {
                             continue;
                         }
                         if (regs.config[n].isScale) {
@@ -506,6 +527,13 @@ export class Master {
                     for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
                         // Skip non-polled registers (e.g., cyclic-write-only) that may be in the config
                         if (!regs.config[n].poll && regType === 'holdingRegs') {
+                            continue;
+                        }
+                        // Skip registers that lie beyond a short response (see guard above, issue #502)
+                        if (
+                            (regs.config[n].address - regBlock.start + regs.config[n].len) * 2 >
+                            response.payload.length
+                        ) {
                             continue;
                         }
                         const id = regs.config[n].id;
