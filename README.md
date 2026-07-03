@@ -135,7 +135,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.5.2 (2026-07-03)
 - (@GermanBluefox) Added a configurable address-gap tolerance for read blocks (issue #581): the new `maxGap` parameter controls how large an address gap may be bridged when combining registers into one read request; set it to 0 to read only contiguous configured registers, so devices that reject non-existent addresses in a gap no longer fail the whole block
 
 ### 7.5.1 (2026-07-03)
