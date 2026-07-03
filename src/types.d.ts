@@ -178,6 +178,8 @@ export interface Options {
         recon?: number;
         maxBlock?: number;
         maxBoolBlock?: number;
+        /** Max address gap (in registers/bits) bridged when merging registers into one read request. 0 = read only contiguous configured registers (issue #581) */
+        maxGap?: number;
         pulseTime?: number;
         waitTime?: number;
         readInterval?: number;
@@ -258,6 +260,8 @@ export interface ModbusParameters {
     maxBlock?: number | string;
     /** Maximum number of boolean (coil/discrete input) registers to read in one block (master mode) */
     maxBoolBlock?: number | string;
+    /** Max address gap (in registers/bits) bridged when merging registers into one read request; 0 = only contiguous configured registers (master mode). Default 10 */
+    maxGap?: number | string;
     /** Enable multiple device IDs — each register can specify its own deviceId */
     multiDeviceId?: boolean | 'true';
     /** Pulse time for coil writes in ms (master mode) */
@@ -355,6 +359,8 @@ export interface ModbusParametersTyped extends ModbusParameters {
     maxBlock: number | string;
     /** Maximum number of boolean registers to read in one block (for master) */
     maxBoolBlock: number | string;
+    /** Max address gap (in registers/bits) bridged when merging registers into one read request; 0 = only contiguous configured registers (for master) */
+    maxGap: number | string;
     /** Use multiple device IDs (for master) */
     multiDeviceId: boolean | 'true';
 

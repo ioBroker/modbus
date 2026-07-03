@@ -38,6 +38,7 @@ const defaultParams = {
     keepAliveInterval: 0,
     maxBlock: 100,
     maxBoolBlock: 128,
+    maxGap: 10,
     multiDeviceId: false,
     pulseTime: 1000,
     waitTime: 50,
@@ -743,6 +744,15 @@ export default class ModbusAdapter extends Adapter {
             }
             options.config.maxBlock = parseInt(params.maxBlock as string, 10) || 100;
             options.config.maxBoolBlock = parseInt(params.maxBoolBlock as string, 10) || 128;
+            // Max address gap (in registers/bits) that may be bridged when merging registers into one
+            // read request. 0 = never bridge a gap (read only contiguous configured registers). Default 10.
+            options.config.maxGap =
+                params.maxGap === undefined || params.maxGap === null || (params.maxGap as string) === ''
+                    ? 10
+                    : parseInt(params.maxGap as string, 10);
+            if (isNaN(options.config.maxGap) || options.config.maxGap < 0) {
+                options.config.maxGap = 10;
+            }
             options.config.pulseTime = parseInt(params.pulseTime as string) || 1000;
             options.config.waitTime = params.waitTime === undefined ? 50 : parseInt(params.waitTime as string, 10) || 0;
             options.config.readInterval = parseInt(params.readInterval as string, 10) || 0;
@@ -1171,6 +1181,7 @@ export default class ModbusAdapter extends Adapter {
             directAddresses: boolean;
             maxBlock?: number;
             maxBoolBlock?: number;
+            maxGap?: number;
             doNotIncludeAdrInId: boolean;
             preserveDotsInId: boolean;
         },
@@ -1241,6 +1252,9 @@ export default class ModbusAdapter extends Adapter {
             }
 
             const maxBlock = isBools ? localOptions.maxBoolBlock! : localOptions.maxBlock!;
+            // Max address gap (in registers/bits) that may be bridged when merging registers into one
+            // read request. 0 = never bridge a gap, so only contiguous configured registers are combined.
+            const maxGap = localOptions.maxGap ?? 10;
             let lastAddress = null;
             let startIndex = 0;
             let blockStart = 0;
@@ -1264,7 +1278,11 @@ export default class ModbusAdapter extends Adapter {
                 if ((result as Modbus.DeviceMasterOption).blocks) {
                     const blocks = (result as Modbus.DeviceMasterOption).blocks;
                     const wouldExceedLimit = config[i].address + config[i].len - blockStart > maxBlock;
-                    const hasAddressGap = config[i].address - lastAddress > 10 && config[i].len < 10;
+                    // Start a new block when the gap to the previous register exceeds maxGap.
+                    // With maxGap === 0 any gap splits (even before large registers), so only
+                    // contiguous configured registers are read together (issue #581).
+                    const hasAddressGap =
+                        config[i].address - lastAddress > maxGap && (maxGap === 0 || config[i].len < 10);
 
                     if (hasAddressGap || wouldExceedLimit) {
                         if (!blocks.map(obj => obj.start).includes(blockStart)) {
@@ -1358,6 +1376,7 @@ export default class ModbusAdapter extends Adapter {
             directAddresses: boolean;
             maxBlock?: number;
             maxBoolBlock?: number;
+            maxGap?: number;
             doNotIncludeAdrInId: boolean;
             preserveDotsInId: boolean;
             removeUnderscorePrefix: boolean;
@@ -1370,6 +1389,7 @@ export default class ModbusAdapter extends Adapter {
             directAddresses: params.directAddresses === true || params.directAddresses === 'true',
             maxBlock: options.config.maxBlock,
             maxBoolBlock: options.config.maxBoolBlock,
+            maxGap: options.config.maxGap,
             doNotIncludeAdrInId: params.doNotIncludeAdrInId === true || params.doNotIncludeAdrInId === 'true',
             preserveDotsInId: params.preserveDotsInId === true || params.preserveDotsInId === 'true',
             removeUnderscorePrefix: params.removeUnderscorePrefix === true || params.removeUnderscorePrefix === 'true',
