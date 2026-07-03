@@ -131,6 +131,10 @@ There are some programs in folder `test` to test the TCP communication:
 - mod_RSsim.exe is a slave simulator. It can be that you need [Microsoft Visual C++ 2008 SP1 Redistributable Package](https://www.microsoft.com/en-us/download/details.aspx?id=5582) to start it (because of a Side-By-Side error).
 
 ## Changelog
+### 7.5.1 (2026-07-03)
+- (@GermanBluefox) Fixed the TCP/SSL master not recovering after a communication loss (issue #594): the receive buffer is now cleared and the socket recreated on every reconnect, so a frame that was cut off by the disconnect can no longer desync the parser and permanently break polling. SSL reconnect (which never recreated its socket) now works at all
+- (@GermanBluefox) Fixed cyclic write of non-polled holding registers in immediate-write mode (`maxBlock < 2`): CW-only registers are now written every poll cycle instead of being silently skipped (follow-up to issue #771)
+
 ### 7.5.0 (2026-07-02)
 - (@GermanBluefox) Added a proxy mode (issue #775): a master instance can additionally serve its polled data as a Modbus TCP slave and forward client writes back to the device (`proxy`/`proxyBind`/`proxyPort`)
 

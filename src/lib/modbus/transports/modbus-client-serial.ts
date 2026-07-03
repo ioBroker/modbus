@@ -62,6 +62,8 @@ export default class ModbusClientSerial extends ModbusClientCore {
     };
 
     #onClose = (): void => {
+        // Discard any half-received frame so a reconnect starts clean (issue #594)
+        this.buffer = Buffer.alloc(0);
         this.emit('close');
         this.setState('closed');
     };
@@ -149,6 +151,9 @@ export default class ModbusClientSerial extends ModbusClientCore {
 
     connect(): void {
         this.setState('connect');
+
+        // Start every (re)connection with a clean receive buffer
+        this.buffer = Buffer.alloc(0);
 
         void this.ready.then(() => {
             if (!this.serialPort) {

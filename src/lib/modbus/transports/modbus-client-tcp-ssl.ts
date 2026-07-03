@@ -80,6 +80,16 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
     #onSocketClose = (hadErrors: boolean): void => {
         this.log.debug(hadErrors ? 'SSL/TLS socket closed with error' : 'SSL/TLS socket closed');
 
+        // Discard any half-received frame and drop the used socket. For TLS this is
+        // mandatory: the socket connects on creation, so without recreating it connect()
+        // would be a no-op and the client would never reconnect (issue #594).
+        this.buffer = Buffer.alloc(0);
+        if (this.socket) {
+            this.socket.removeAllListeners();
+            this.socket.destroy();
+            this.socket = null;
+        }
+
         this.setState('closed');
         this.emit('close');
 
@@ -154,6 +164,12 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
 
     connect(): void {
         this.setState('connect');
+
+        // Start every (re)connection from a clean state: no leftover bytes, no
+        // blacklisted transaction id, and open again after an on-purpose close.
+        this.buffer = Buffer.alloc(0);
+        this.trashRequestId = undefined;
+        this.closedOnPurpose = false;
 
         if (!this.socket) {
             // Prepare SSL/TLS options

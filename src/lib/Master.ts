@@ -734,19 +734,10 @@ export class Master {
         }
     }
 
-    async #writeFloatsRegs(device: {
-        disInputs: DeviceMasterOption;
-        coils: DeviceMasterOption;
-        inputRegs: DeviceMasterOption;
-        holdingRegs: DeviceMasterOption;
-    }): Promise<void> {
-        const regs = device.holdingRegs;
-
-        if (regs.cyclicWrite) {
-            for (const fullId of regs.cyclicWrite) {
-                await this.#writeFloatsReg(fullId);
-                await this.#waitAsync(this.options.config.readInterval);
-            }
+    async #writeFloatsRegs(fullIds: string[]): Promise<void> {
+        for (const fullId of fullIds) {
+            await this.#writeFloatsReg(fullId);
+            await this.#waitAsync(this.options.config.readInterval);
         }
     }
 
@@ -830,13 +821,25 @@ export class Master {
             pollErrors.push({ desc: 'pollFloatsBlocks', error: err });
         }
 
-        if (device.holdingRegs.cyclicWrite?.length && this.options.config.maxBlock! >= 2) {
-            try {
-                operations++;
-                await this.#writeFloatsRegs(device);
-                await this.#waitAsync(this.options.config.writeInterval);
-            } catch (err) {
-                pollErrors.push({ desc: 'writeFloatsRegs', error: err });
+        // Cyclic write (cw) of holding registers.
+        // With maxBlock >= 2 all cyclic registers are written here once per poll cycle.
+        // With maxBlock < 2 (immediate-write mode) polled cyclic registers are already
+        // written right after their block read, so only the non-polled (CW-only) registers
+        // still need to be written here — otherwise cyclic write of unpolled registers would
+        // never run in immediate-write mode (issue #771).
+        if (device.holdingRegs.cyclicWrite?.length) {
+            const toWrite =
+                this.options.config.maxBlock! < 2
+                    ? device.holdingRegs.cyclicWrite.filter(fullId => !this.objects[fullId]?.native?.poll)
+                    : device.holdingRegs.cyclicWrite;
+            if (toWrite.length) {
+                try {
+                    operations++;
+                    await this.#writeFloatsRegs(toWrite);
+                    await this.#waitAsync(this.options.config.writeInterval);
+                } catch (err) {
+                    pollErrors.push({ desc: 'writeFloatsRegs', error: err });
+                }
             }
         }
 

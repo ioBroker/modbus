@@ -62,6 +62,17 @@ export default class ModbusClientTCP extends ModbusClientCore {
     #onSocketClose = (hadErrors: boolean): void => {
         this.log.debug(hadErrors ? 'Socket closed with error' : 'Socket closed');
 
+        // Discard any half-received frame and drop the used socket, so a reconnect
+        // starts from a clean state with a fresh socket. Otherwise leftover bytes from
+        // a frame that was cut off by the disconnect would desync the MBAP parser and
+        // (as TCP has no checksum to resync on) break every subsequent poll (issue #594).
+        this.buffer = Buffer.alloc(0);
+        if (this.socket) {
+            this.socket.removeAllListeners();
+            this.socket.destroy();
+            this.socket = null;
+        }
+
         this.setState('closed');
         this.emit('close');
 
@@ -135,6 +146,12 @@ export default class ModbusClientTCP extends ModbusClientCore {
 
     connect(): void {
         this.setState('connect');
+
+        // Start every (re)connection from a clean state: no leftover bytes, no
+        // blacklisted transaction id, and open again after an on-purpose close.
+        this.buffer = Buffer.alloc(0);
+        this.trashRequestId = undefined;
+        this.closedOnPurpose = false;
 
         if (!this.socket) {
             this.socket = new Socket();
