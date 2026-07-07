@@ -1,6 +1,6 @@
 import ModbusServerCore from '../modbus-server-core';
 import Put from '../../Put';
-import { createServer, type Socket, type Server, type AddressInfo } from 'node:net';
+import { createServer, type Socket, type Server } from 'node:net';
 
 export default class ModbusServerTcp extends ModbusServerCore {
     private server: Server;
@@ -160,6 +160,9 @@ export default class ModbusServerTcp extends ModbusServerCore {
     }
 
     getClients(): string[] {
-        return this.clients?.map(it => (it?.address() as AddressInfo)?.address).filter(it => it) || [];
+        // remoteAddress is the connected master (peer); address() would return the local server address.
+        // De-duplicate so multiple sessions from the same master appear once instead of e.g. "10.8.0.2,10.8.0.2".
+        const addresses = (this.clients || []).map(it => it?.remoteAddress).filter((it): it is string => !!it);
+        return [...new Set(addresses)];
     }
 }
