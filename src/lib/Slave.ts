@@ -1,4 +1,4 @@
-import { extractValue, writeValue } from './common';
+import { extractValue, writeValue, stringRegisterTypes } from './common';
 import ModbusServerSerial from './modbus/transports/modbus-server-serial';
 import ModbusServerTcp from './modbus/transports/modbus-server-tcp';
 import { createLoggingWrapper } from './loggingUtils';
@@ -107,7 +107,7 @@ export default class Slave {
                     : 0;
             }
         } else if (type === 'inputRegs' || type === 'holdingRegs') {
-            if (!['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(this.objects[id].native.type)) {
+            if (!stringRegisterTypes.includes(this.objects[id].native.type)) {
                 if (t === 'boolean') {
                     val = state.val ? 1 : 0;
                 } else if (t === 'number') {
@@ -394,7 +394,7 @@ export default class Slave {
                     try {
                         let val = extractValue(native.type, native.len, buf, 0);
 
-                        if (!['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(native.type)) {
+                        if (!stringRegisterTypes.includes(native.type)) {
                             val = (val as number) * native.factor + native.offset;
                             val = Math.round((val as number) * this.options.config.round) / this.options.config.round;
                         }
@@ -437,7 +437,7 @@ export default class Slave {
 
                         try {
                             let val = extractValue(native.type, native.len, data, i + start);
-                            if (!['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(native.type)) {
+                            if (!stringRegisterTypes.includes(native.type)) {
                                 val = (val as number) * native.factor + native.offset;
                                 val =
                                     Math.round((val as number) * this.options.config.round) / this.options.config.round;

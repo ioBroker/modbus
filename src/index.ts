@@ -7,6 +7,7 @@ import tsv2registers from './convert';
 
 import { Master } from './lib/Master'; // Get common adapter utils
 import Slave from './lib/Slave'; // Get common adapter utils
+import { stringRegisterTypes, variableLengthStringTypes } from './lib/common';
 let serialPortList: (() => Promise<PortInfo[]>) | null = null;
 
 /** A serial PortInfo enriched with a stable physical-USB-port identifier (from /dev/serial/by-path, Linux only) */
@@ -151,6 +152,10 @@ export default class ModbusAdapter extends Adapter {
         uint64le: 4,
         int64be: 4,
         int64le: 4,
+        int64bestr: 4,
+        int64lestr: 4,
+        uint64bestr: 4,
+        uint64lestr: 4,
         floatbe: 2,
         floatle: 2,
         floatsw: 2,
@@ -973,7 +978,7 @@ export default class ModbusAdapter extends Adapter {
                     type:
                         regType === 'coils' || regType === 'disInputs'
                             ? 'boolean'
-                            : ['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(regs[i].type)
+                            : stringRegisterTypes.includes(regs[i].type)
                               ? 'string'
                               : 'number',
                     read: true,
@@ -981,7 +986,7 @@ export default class ModbusAdapter extends Adapter {
                     def:
                         regType === 'coils' || regType === 'disInputs'
                             ? false
-                            : ['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(regs[i].type)
+                            : stringRegisterTypes.includes(regs[i].type)
                               ? ''
                               : 0,
                 },
@@ -1225,7 +1230,9 @@ export default class ModbusAdapter extends Adapter {
                     } else {
                         config[i].factor = factor || 1;
                     }
-                    if (['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(config[i].type)) {
+                    // Only variable-length string types take a user-defined length; the fixed-length
+                    // *str 64-bit types fall through to typeItemsLen (4 registers) like their numeric peers.
+                    if (variableLengthStringTypes.includes(config[i].type)) {
                         config[i].len = parseInt(config[i].len as unknown as string, 10) || 1;
                     } else {
                         config[i].len = ModbusAdapter.typeItemsLen[config[i].type];

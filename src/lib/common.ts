@@ -1,5 +1,35 @@
 import type { RegisterEntryType } from '../types';
 
+/**
+ * Register types whose value is carried as a text string at the ioBroker state boundary and is
+ * therefore never scaled with factor/offset/round. Includes the variable-length string types and
+ * the fixed-length 64-bit integer types rendered as decimal strings (int64*str/uint64*str), which
+ * preserve the full 64-bit range beyond 2^53.
+ */
+export const stringRegisterTypes: RegisterEntryType[] = [
+    'string',
+    'stringle',
+    'string16',
+    'string16le',
+    'rawhex',
+    'int64bestr',
+    'int64lestr',
+    'uint64bestr',
+    'uint64lestr',
+];
+
+/**
+ * Subset of {@link stringRegisterTypes} whose length is user-defined (variable). The *str types are
+ * excluded here because they occupy a fixed 4 registers (8 bytes) like their numeric counterparts.
+ */
+export const variableLengthStringTypes: RegisterEntryType[] = [
+    'string',
+    'stringle',
+    'string16',
+    'string16le',
+    'rawhex',
+];
+
 export function extractValue(type: RegisterEntryType, len: number, buffer: Buffer, offset: number): string | number {
     let buf: Buffer;
     let _len: number;
@@ -68,6 +98,15 @@ export function extractValue(type: RegisterEntryType, len: number, buffer: Buffe
             return Number(buffer.readBigInt64BE(offset * 2));
         case 'int64le':
             return Number(buffer.readBigInt64LE(offset * 2));
+        // Exact 64-bit as a decimal string: BigInt avoids the 2^53 precision loss of Number.
+        case 'uint64bestr':
+            return buffer.readBigUInt64BE(offset * 2).toString();
+        case 'uint64lestr':
+            return buffer.readBigUInt64LE(offset * 2).toString();
+        case 'int64bestr':
+            return buffer.readBigInt64BE(offset * 2).toString();
+        case 'int64lestr':
+            return buffer.readBigInt64LE(offset * 2).toString();
 
         case 'floatbe':
             return buffer.readFloatBE(offset * 2);
@@ -264,6 +303,23 @@ export function writeValue(type: RegisterEntryType, value: number | string, len?
         case 'int64le':
             buffer = Buffer.alloc(8);
             buffer.writeBigInt64LE(BigInt(Math.trunc(value as number)), 0);
+            break;
+        // Exact 64-bit from a decimal string; String() also accepts a number defensively.
+        case 'uint64bestr':
+            buffer = Buffer.alloc(8);
+            buffer.writeBigUInt64BE(BigInt(String(value).trim()), 0);
+            break;
+        case 'uint64lestr':
+            buffer = Buffer.alloc(8);
+            buffer.writeBigUInt64LE(BigInt(String(value).trim()), 0);
+            break;
+        case 'int64bestr':
+            buffer = Buffer.alloc(8);
+            buffer.writeBigInt64BE(BigInt(String(value).trim()), 0);
+            break;
+        case 'int64lestr':
+            buffer = Buffer.alloc(8);
+            buffer.writeBigInt64LE(BigInt(String(value).trim()), 0);
             break;
         case 'floatbe':
             buffer = Buffer.alloc(4);
