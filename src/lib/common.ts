@@ -1,8 +1,36 @@
 import type { RegisterEntryType } from '../types';
 
+/**
+ * Register types whose value is carried as a text string at the ioBroker state boundary and is
+ * therefore never scaled with factor/offset/round. Includes the variable-length string types and
+ * the fixed-length 64-bit integer types rendered as decimal strings (int64*str/uint64*str), which
+ * preserve the full 64-bit range beyond 2^53.
+ */
+export const stringRegisterTypes: RegisterEntryType[] = [
+    'string',
+    'stringle',
+    'string16',
+    'string16le',
+    'rawhex',
+    'int64bestr',
+    'int64lestr',
+    'uint64bestr',
+    'uint64lestr',
+];
+
+/**
+ * Subset of {@link stringRegisterTypes} whose length is user-defined (variable). The *str types are
+ * excluded here because they occupy a fixed 4 registers (8 bytes) like their numeric counterparts.
+ */
+export const variableLengthStringTypes: RegisterEntryType[] = [
+    'string',
+    'stringle',
+    'string16',
+    'string16le',
+    'rawhex',
+];
+
 export function extractValue(type: RegisterEntryType, len: number, buffer: Buffer, offset: number): string | number {
-    let i1: number;
-    let i2: number;
     let buf: Buffer;
     let _len: number;
     let str = '';
@@ -61,24 +89,24 @@ export function extractValue(type: RegisterEntryType, len: number, buffer: Buffe
             buf[3] = buffer[offset * 2 + 2];
             return buf.readInt32BE(0);
         case 'uint64be':
-            return buffer.readUInt32BE(offset * 2) * 0x100000000 + buffer.readUInt32BE(offset * 2 + 4);
+            // Decode via BigInt to handle the full 64-bit range and correct two's-complement.
+            // Number() caps exactness at 2^53 (documented); the *str variants avoid that loss.
+            return Number(buffer.readBigUInt64BE(offset * 2));
         case 'uint64le':
-            return buffer.readUInt32LE(offset * 2) + buffer.readUInt32LE(offset * 2 + 4) * 0x100000000;
+            return Number(buffer.readBigUInt64LE(offset * 2));
         case 'int64be':
-            i1 = buffer.readInt32BE(offset * 2);
-            i2 = buffer.readUInt32BE(offset * 2 + 4);
-            if (i1 >= 0) {
-                return i1 * 0x100000000 + i2; // <<32 does not work
-            }
-            return i1 * 0x100000000 - i2; // I have no solution for that !
-
+            return Number(buffer.readBigInt64BE(offset * 2));
         case 'int64le':
-            i2 = buffer.readUInt32LE(offset * 2);
-            i1 = buffer.readInt32LE(offset * 2 + 4);
-            if (i1 >= 0) {
-                return i1 * 0x100000000 + i2; // <<32 does not work
-            }
-            return i1 * 0x100000000 - i2; // I have no solution for that !
+            return Number(buffer.readBigInt64LE(offset * 2));
+        // Exact 64-bit as a decimal string: BigInt avoids the 2^53 precision loss of Number.
+        case 'uint64bestr':
+            return buffer.readBigUInt64BE(offset * 2).toString();
+        case 'uint64lestr':
+            return buffer.readBigUInt64LE(offset * 2).toString();
+        case 'int64bestr':
+            return buffer.readBigInt64BE(offset * 2).toString();
+        case 'int64lestr':
+            return buffer.readBigInt64LE(offset * 2).toString();
 
         case 'floatbe':
             return buffer.readFloatBE(offset * 2);
@@ -257,25 +285,41 @@ export function writeValue(type: RegisterEntryType, value: number | string, len?
             buffer[1] = a0;
             buffer[3] = a2;
             break;
+        // Encode via BigInt: JS `>> 32` masks the shift count modulo 32 (a no-op), which
+        // duplicated the value into both 32-bit words. Math.trunc guards against non-integer input
+        // (BigInt() throws on fractions); values are still limited to 2^53 on the Number-typed path.
         case 'uint64be':
             buffer = Buffer.alloc(8);
-            buffer.writeUInt32BE((value as number) >> 32, 0);
-            buffer.writeUInt32BE((value as number) & 0xffffffff, 4);
+            buffer.writeBigUInt64BE(BigInt(Math.trunc(value as number)), 0);
             break;
         case 'uint64le':
             buffer = Buffer.alloc(8);
-            buffer.writeUInt32LE((value as number) & 0xffffffff, 0);
-            buffer.writeUInt32LE((value as number) >> 32, 4);
+            buffer.writeBigUInt64LE(BigInt(Math.trunc(value as number)), 0);
             break;
         case 'int64be':
             buffer = Buffer.alloc(8);
-            buffer.writeInt32BE((value as number) >> 32, 0);
-            buffer.writeUInt32BE((value as number) & 0xffffffff, 4);
+            buffer.writeBigInt64BE(BigInt(Math.trunc(value as number)), 0);
             break;
         case 'int64le':
             buffer = Buffer.alloc(8);
-            buffer.writeUInt32LE((value as number) & 0xffffffff, 0);
-            buffer.writeInt32LE((value as number) >> 32, 4);
+            buffer.writeBigInt64LE(BigInt(Math.trunc(value as number)), 0);
+            break;
+        // Exact 64-bit from a decimal string; String() also accepts a number defensively.
+        case 'uint64bestr':
+            buffer = Buffer.alloc(8);
+            buffer.writeBigUInt64BE(BigInt(String(value).trim()), 0);
+            break;
+        case 'uint64lestr':
+            buffer = Buffer.alloc(8);
+            buffer.writeBigUInt64LE(BigInt(String(value).trim()), 0);
+            break;
+        case 'int64bestr':
+            buffer = Buffer.alloc(8);
+            buffer.writeBigInt64BE(BigInt(String(value).trim()), 0);
+            break;
+        case 'int64lestr':
+            buffer = Buffer.alloc(8);
+            buffer.writeBigInt64LE(BigInt(String(value).trim()), 0);
             break;
         case 'floatbe':
             buffer = Buffer.alloc(4);

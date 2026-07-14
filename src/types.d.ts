@@ -32,6 +32,11 @@ export type RegisterEntryType =
     | 'floatsb'
     | 'uint64be'
     | 'uint64le'
+    // 64-bit integers rendered as a decimal string to preserve the full range beyond 2^53
+    | 'int64bestr'
+    | 'int64lestr'
+    | 'uint64bestr'
+    | 'uint64lestr'
     | 'doublebe'
     | 'doublele';
 
