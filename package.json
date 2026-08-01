@@ -31,7 +31,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@iobroker/adapter-core": "^3.4.1",
+    "@iobroker/adapter-core": "^3.4.3",
     "tsv-json": "^2.0.0"
   },
   "devDependencies": {
