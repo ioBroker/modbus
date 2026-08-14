@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.7.0 (2026-08-14)
 - (@johannes-lode) **Changed values for 64-bit registers:** fixed the encoding and decoding of `int64be`/`int64le`/`uint64be`/`uint64le`. Writing built the high word with `value >> 32`, but JavaScript masks the shift count modulo 32, so both 32-bit words received the low word (12000 was written as `00002ee000002ee0` and read back as 51539607564000) and every negative value or value `>= 2^31` threw a `RangeError`, leaving the register unwritten. Decoding negatives used `high * 2^32 - low`, which is not two's complement. Both directions now go through `readBigInt64…`/`writeBigInt64…`. Setups that use a 64-bit register with negative values or a non-zero high word will read different — now correct — values after the update
 - (@johannes-lode) Added the register types `int64bestr`/`int64lestr`/`uint64bestr`/`uint64lestr`, which carry the exact 64-bit value as a decimal string and keep the precision that a JavaScript number loses above 2^53. They occupy 4 registers like their numeric counterparts and are not scaled with factor/offset (see "Exact 64-bit values")
 - (@johannes-lode) Fixed writing negative values to `int8be`/`int8le` registers: the codec masked the value to 0…255 and then called `writeInt8`, which rejects that range and threw a `RangeError` (caught by the slave, so the register was silently left unwritten). Negative int8 values are now written correctly
