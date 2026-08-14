@@ -150,6 +150,46 @@ sed -i -E 's/\tint8be\t/\tsignExtendedInt8be\t/g; s/\tint8le\t/\tsignExtendedInt
 
 (The surrounding tabs anchor the match to the whole `type` column, so `uint8be` is not touched.) Keep the out-of-range difference above in mind: after the conversion, values outside −128…127 are no longer wrapped but warned about and dropped.
 
+## Exact 64-bit values
+
+A JavaScript number is a double: it represents integers exactly only up to 2^53. The numeric types `int64be`/`int64le`/`uint64be`/`uint64le` therefore silently round anything larger — an energy counter or a device serial number can come out wrong in the last digits.
+
+If you need the full 64-bit range, use the string variants `int64bestr`/`int64lestr`/`uint64bestr`/`uint64lestr`. They occupy the same 4 registers and the same byte order, but the state is a `string` holding the exact decimal value:
+
+| Type | State value for bytes `FF FF FF FF FF FF FF FF` |
+|------|--------------------------------------------------|
+| `uint64be`    | `18446744073709552000` (rounded) |
+| `uint64bestr` | `"18446744073709551615"` (exact) |
+
+Like the other string types they are **not** scaled: `factor`, `offset` and `round` are ignored. A value that is not a valid integer string is rejected with the standard `Can not write value …` warning and leaves the register unchanged.
+
+## Read notifications (slave mode)
+
+In slave mode the adapter is the server, so a read by the connected master is normally invisible — only writes reach the adapter. The read notifications make it visible: for every mapped register a counter state is created in a parallel tree under `readNotify.`, and it is incremented whenever a master reads that register.
+
+```
+modbus.0.holdingRegisters.40001_Temperature            ← the value
+modbus.0.readNotify.holdingRegisters.40001_Temperature ← how often it was read
+```
+
+Configured per register type:
+
+| Parameter | Effect |
+|-----------|--------|
+| `notifyOnReadCoils`       | notifications for coils (FC1) |
+| `notifyOnReadDisInputs`   | notifications for discrete inputs (FC2) |
+| `notifyOnReadInputRegs`   | notifications for input registers (FC4) |
+| `notifyOnReadHoldingRegs` | notifications for holding registers (FC3) |
+| `notifyOnReadExpire`      | seconds after which a notification state expires (`0` = never) |
+
+Notes:
+
+- The states are written with `ack: true`, so they never re-enter the adapter's own `stateChange` handler.
+- With `notifyOnReadExpire` a state disappears if the register is not read for that many seconds. That turns the counter into a watchdog on the master: *state present = the master is still polling*.
+- The counter lives in memory and restarts at 1 after an adapter restart. `info.adapterStarts` counts the restarts, so a script can tell that reset from an anomaly.
+- Every read produces one state write **per covered register**. With a fast master and many mapped registers this is a noticeable amount of state traffic — enable the notifications only for the register types you actually evaluate.
+- Switching a flag off removes the corresponding part of the `readNotify` tree on the next adapter start.
+
 ## Serial port
 
 If you want to use serial port, you have to include `serialport` package into 'package.json' of your adapter, because `@iobroker/modbus` does not have this dependency by default.
@@ -168,8 +208,18 @@ There are some programs in folder `test` to test the TCP communication:
 	### **WORK IN PROGRESS**
 -->
 ### **WORK IN PROGRESS**
+- (@johannes-lode) **Changed values for 64-bit registers:** fixed the encoding and decoding of `int64be`/`int64le`/`uint64be`/`uint64le`. Writing built the high word with `value >> 32`, but JavaScript masks the shift count modulo 32, so both 32-bit words received the low word (12000 was written as `00002ee000002ee0` and read back as 51539607564000) and every negative value or value `>= 2^31` threw a `RangeError`, leaving the register unwritten. Decoding negatives used `high * 2^32 - low`, which is not two's complement. Both directions now go through `readBigInt64…`/`writeBigInt64…`. Setups that use a 64-bit register with negative values or a non-zero high word will read different — now correct — values after the update
+- (@johannes-lode) Added the register types `int64bestr`/`int64lestr`/`uint64bestr`/`uint64lestr`, which carry the exact 64-bit value as a decimal string and keep the precision that a JavaScript number loses above 2^53. They occupy 4 registers like their numeric counterparts and are not scaled with factor/offset (see "Exact 64-bit values")
 - (@johannes-lode) Fixed writing negative values to `int8be`/`int8le` registers: the codec masked the value to 0…255 and then called `writeInt8`, which rejects that range and threw a `RangeError` (caught by the slave, so the register was silently left unwritten). Negative int8 values are now written correctly
 - (@johannes-lode) Added the register types `signExtendedInt8be`/`signExtendedInt8le`, which sign-extend a signed int8 into the full 16-bit register so a foreign master that reads it as int16 gets the signed value directly (see "Signed int8 in 16-bit registers")
+- (@johannes-lode) Fixed the slave write-back of a single register (FC6): the internal value array is byte-indexed, but the register index was used unscaled, so a client write to register N overwrote the bytes of register N/2 — the written register kept its old value and a neighbouring one was corrupted. Both only became visible once the served buffer was refreshed from the internal array
+- (@johannes-lode) Fixed the slave write-back of multiple registers (FC16): the source bytes were taken from the start of the written block instead of each register's own position, so every mapped register of a multi-register write received a copy of the first register's bytes
+- (@johannes-lode) Removed the artificial 100 ms `responseDelay` of the TCP slave server: it was applied per request and, together with the shared request queue, serialized all connections to roughly 10 requests per second in total, which caused head-of-line blocking and master timeouts as soon as more than one master polled. The serial slave keeps its delay (it needs the line turnaround)
+- (@johannes-lode) Fixed the list of connected clients in slave mode: `socket.address()` returns the LOCAL address of an accepted socket, so `info.connection` reported the server's own bind address instead of the connected masters — the peer address is now used and duplicates are removed. Sockets are also removed on `close` instead of `end`, so a connection that dies without a clean FIN (RST, cable or VPN drop) no longer stays in the list forever, and the list no longer contains the client that is currently disconnecting
+- (@johannes-lode) Added read notifications for slave mode (`notifyOnReadCoils`, `notifyOnReadDisInputs`, `notifyOnReadInputRegs`, `notifyOnReadHoldingRegs`, `notifyOnReadExpire`): a counter state under `readNotify.<register id>` is incremented whenever a master reads that register, so an adapter can react to read access — watchdog on the master, access analysis, read-triggered logic. With `notifyOnReadExpire` the states expire after N seconds without a read. The counter is held in memory and restarts at 1 after an adapter restart (see "Read notifications")
+- (@johannes-lode) Added `info.adapterStarts` in slave mode: a counter incremented on every adapter start, so a script can distinguish the in-memory reset of the read-notification counters from an anomaly
+- (@GermanBluefox) Added the missing `signExtendedInt8be`/`signExtendedInt8le` entries to the register length table (one register each)
+- (@GermanBluefox) Added tests for the register codec (64-bit, the `…str` types and signed int8) and a loopback test for the slave write-back and read-notification paths
 
 ### 7.6.0 (2026-07-03)
 - (@GermanBluefox) Added Modbus/UDP master support (issue #222): a new `'udp'` connection type served by a UDP datagram transport that reuses the Modbus/TCP MBAP framing (one datagram per request/response)

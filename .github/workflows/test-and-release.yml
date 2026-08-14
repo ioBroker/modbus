@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: '24.x'
           lint: true
-          test-command: 'false'
+          test-command: 'npm test'
 
   # Deploys the final package to NPM
   deploy:

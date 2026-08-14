@@ -134,6 +134,8 @@ export default class ModbusAdapter extends Adapter {
         uint8le: 1,
         int8be: 1,
         int8le: 1,
+        signExtendedInt8be: 1,
+        signExtendedInt8le: 1,
         uint16be: 1,
         uint16le: 1,
         int16be: 1,

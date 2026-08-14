@@ -10,9 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Build:** `npm run build` (runs `tsc -p tsconfig.build.json && node tasks` — the tasks script copies `src/types.d.ts` to `build/`)
 - **Lint:** `npm run lint` (ESLint with `@iobroker/eslint-config`, Prettier with `@iobroker/eslint-config/prettier.config.mjs`)
+- **Test:** `npm test` (mocha over `test/**/*.ts` via `ts-node/register/transpile-only`), `npm run test:types` (typechecks the tests against `test/tsconfig.json`)
 - **Release:** `npm run release-patch`, `npm run release-minor`, `npm run release-major` (uses `@alcalzone/release-script`)
 
-There are no unit tests in this library. CI runs lint only. Integration testing is expected at the adapter level.
+Tests use `node:assert` only (no chai) and never touch js-controller: a fake adapter object stands in for it, and the Modbus counterpart is either a hand-rolled TCP/UDP server or the library's own `Slave` driven over a real loopback socket. Tests that bind a port use a fixed one (`15502`, `15503`). CI runs lint and the test suite. Testing against real devices is expected at the adapter level.
 
 ## Architecture
 
