@@ -122,10 +122,10 @@ If the value of `deviceType` is `data/m100.tsv` or `data/m100` the adapter will 
 
 A Modbus register is 16 bits wide, so an 8-bit value occupies one register and one byte stays unused. Which byte carries the value depends on the endianness suffix:
 
-| Type suffix | Value byte | Unused (pad) byte |
-|-------------|------------|-------------------|
-| `…8be`      | low byte (register bits 7:0)   | high byte |
-| `…8le`      | high byte (register bits 15:8) | low byte  |
+| Type suffix  | Value byte                     | Unused (pad) byte  |
+|--------------|--------------------------------|--------------------|
+| `…8be`       | low byte (register bits 7:0)   | high byte          |
+| `…8le`       | high byte (register bits 15:8) | low byte           |
 
 > Note: the naming is counter-intuitive — `be` puts the 8 bits into the **lower** half of the register, `le` into the **upper** half.
 
@@ -156,10 +156,10 @@ A JavaScript number is a double: it represents integers exactly only up to 2^53.
 
 If you need the full 64-bit range, use the string variants `int64bestr`/`int64lestr`/`uint64bestr`/`uint64lestr`. They occupy the same 4 registers and the same byte order, but the state is a `string` holding the exact decimal value:
 
-| Type | State value for bytes `FF FF FF FF FF FF FF FF` |
-|------|--------------------------------------------------|
-| `uint64be`    | `18446744073709552000` (rounded) |
-| `uint64bestr` | `"18446744073709551615"` (exact) |
+| Type          | State value for bytes `FF FF FF FF FF FF FF FF`   |
+|---------------|---------------------------------------------------|
+| `uint64be`    | `18446744073709552000` (rounded)                  |
+| `uint64bestr` | `"18446744073709551615"` (exact)                  |
 
 Like the other string types they are **not** scaled: `factor`, `offset` and `round` are ignored. A value that is not a valid integer string is rejected with the standard `Can not write value …` warning and leaves the register unchanged.
 
