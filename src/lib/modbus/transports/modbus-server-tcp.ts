@@ -1,6 +1,6 @@
 import ModbusServerCore from '../modbus-server-core';
 import Put from '../../Put';
-import { createServer, type Socket, type Server, type AddressInfo } from 'node:net';
+import { createServer, type Socket, type Server } from 'node:net';
 
 export default class ModbusServerTcp extends ModbusServerCore {
     private server: Server;
@@ -133,18 +133,21 @@ export default class ModbusServerTcp extends ModbusServerCore {
 
     #initiateSocket = (socket: Socket): void => {
         this.socketCount += 1;
-        socket.on('end', () => {
-            this.emit('close');
-            this.log.debug(`connection closed, socket ${JSON.stringify(socket.address())}`);
-            const pos = this.clients.indexOf(socket);
-            if (pos !== -1) {
-                this.clients.splice(pos, 1);
-            }
-        });
         socket.on('data', this.#onSocketData(socket));
         socket.on('error', e => {
             this.emit('error', e);
             this.log.error(`Socket error ${e}`);
+        });
+        // 'close' fires on every termination (clean FIN, error, or abrupt network/VPN drop),
+        // whereas 'end' only fires on a clean FIN from the peer. Removing the socket here keeps
+        // this.clients from accumulating stale entries that would otherwise be listed forever.
+        socket.on('close', () => {
+            const pos = this.clients.indexOf(socket);
+            if (pos !== -1) {
+                this.clients.splice(pos, 1);
+            }
+            this.log.debug(`connection closed, socket ${JSON.stringify(socket.address())}`);
+            this.emit('close');
         });
     };
 
@@ -160,6 +163,9 @@ export default class ModbusServerTcp extends ModbusServerCore {
     }
 
     getClients(): string[] {
-        return this.clients?.map(it => (it?.address() as AddressInfo)?.address).filter(it => it) || [];
+        // remoteAddress is the connected master (peer); address() would return the local server address.
+        // De-duplicate so multiple sessions from the same master appear once instead of e.g. "10.8.0.2,10.8.0.2".
+        const addresses = (this.clients || []).map(it => it?.remoteAddress).filter((it): it is string => !!it);
+        return [...new Set(addresses)];
     }
 }

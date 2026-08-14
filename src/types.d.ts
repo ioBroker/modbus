@@ -16,6 +16,10 @@ export type RegisterEntryType =
     | 'uint8le'
     | 'int8be'
     | 'int8le'
+    // signed int8 sign-extended into the full 16-bit register (pad byte = sign), unlike int8be/int8le
+    // which zero-pad. Out-of-range values (< -128 / > 127) are rejected with a warning, not wrapped.
+    | 'signExtendedInt8be'
+    | 'signExtendedInt8le'
     | 'uint32be'
     | 'uint32le'
     | 'uint32sw'
@@ -32,6 +36,11 @@ export type RegisterEntryType =
     | 'floatsb'
     | 'uint64be'
     | 'uint64le'
+    // 64-bit integers rendered as a decimal string to preserve the full range beyond 2^53
+    | 'int64bestr'
+    | 'int64lestr'
+    | 'uint64bestr'
+    | 'uint64lestr'
     | 'doublebe'
     | 'doublele';
 
@@ -188,6 +197,14 @@ export interface Options {
         /** Enable automatic sanitization of invalid register values */
         enableSanitization?: boolean;
 
+        // Only for slave — read-notify feature
+        /** Expire time in seconds for counter-mode read-notify states; 0 = no expire */
+        notifyOnReadExpire?: number;
+        notifyOnReadCoils?: boolean;
+        notifyOnReadDisInputs?: boolean;
+        notifyOnReadInputRegs?: boolean;
+        notifyOnReadHoldingRegs?: boolean;
+
         tcp?: {
             port: number;
             ip?: string;
@@ -314,6 +331,18 @@ export interface ModbusParameters {
     sslAllowSelfSigned?: boolean;
     /** Enable automatic sanitization of invalid register values (NaN, Infinity, extreme floats, out-of-range) */
     enableSanitization?: boolean;
+
+    // Slave mode — read-notify feature
+    /** Expire time in seconds for counter-mode states; 0 or omitted = no expire */
+    notifyOnReadExpire?: number | string;
+    /** Emit read-notify states for coils (FC1) */
+    notifyOnReadCoils?: boolean;
+    /** Emit read-notify states for discrete inputs (FC2) */
+    notifyOnReadDisInputs?: boolean;
+    /** Emit read-notify states for input registers (FC4) */
+    notifyOnReadInputRegs?: boolean;
+    /** Emit read-notify states for holding registers (FC3) */
+    notifyOnReadHoldingRegs?: boolean;
 }
 
 export interface ModbusParametersTyped extends ModbusParameters {
@@ -424,6 +453,13 @@ export interface ModbusParametersTyped extends ModbusParameters {
     disableLogging: boolean;
     /** Enable automatic sanitization of invalid register values */
     enableSanitization?: boolean;
+
+    // Slave mode — read-notify feature
+    notifyOnReadExpire?: number | string;
+    notifyOnReadCoils?: boolean;
+    notifyOnReadDisInputs?: boolean;
+    notifyOnReadInputRegs?: boolean;
+    notifyOnReadHoldingRegs?: boolean;
 }
 
 export interface ModbusAdapterConfig extends ioBroker.AdapterConfig {

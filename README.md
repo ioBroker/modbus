@@ -118,6 +118,38 @@ If the value of `deviceType` is `data/holdingRegs.tsv` or `data/holdingRegs` the
 
 If the value of `deviceType` is `data/m100.tsv` or `data/m100` the adapter will search for files `<adapterDirectory>/data/m100coils.tsv`, `<adapterDirectory>/data/m100disInputs.tsv`, `<adapterDirectory>/data/m100inputRegs.tsv`, `<adapterDirectory>/data/m100holdingRegs.tsv`
 
+## Signed int8 in 16-bit registers
+
+A Modbus register is 16 bits wide, so an 8-bit value occupies one register and one byte stays unused. Which byte carries the value depends on the endianness suffix:
+
+| Type suffix | Value byte | Unused (pad) byte |
+|-------------|------------|-------------------|
+| `…8be`      | low byte (register bits 7:0)   | high byte |
+| `…8le`      | high byte (register bits 15:8) | low byte  |
+
+> Note: the naming is counter-intuitive — `be` puts the 8 bits into the **lower** half of the register, `le` into the **upper** half.
+
+For the signed types `int8be`/`int8le` the pad byte is set to `0x00` (zero extension). Reading the value back through this library is always correct (it reads only the value byte via `readInt8`). The difference is only visible to a **foreign master** that reads the whole register as int16:
+
+- `int8be` `-5` → bytes `00 FB` → int16 = **+251** (the sign is lost unless the master reads just the low byte as int8).
+
+If you need a foreign master to read the value correctly as int16, use the sign-extended variants:
+
+- `signExtendedInt8be` `-5` → bytes `FF FB` → **big-endian** int16 = `-5`
+- `signExtendedInt8le` `-5` → bytes `FB FF` → **little-endian** int16 = `-5`
+
+They sign-extend the value into the pad byte instead of zeroing it. Reading through the library still returns the signed value (it reads only the value byte, which is robust against counterparts that leave garbage in the pad byte).
+
+**Out-of-range values differ between the two families.** `int8be`/`int8le` mask the value to 8 bits (a value outside −128…127 wraps silently). The `signExtended…` types instead **reject** an out-of-range value: they emit the standard `Can not write value …` warning and leave the register unchanged — consistent with the other numeric register types.
+
+To convert an existing TSV from the zero-padded to the sign-extended types (know your tools):
+
+```bash
+sed -i -E 's/\tint8be\t/\tsignExtendedInt8be\t/g; s/\tint8le\t/\tsignExtendedInt8le\t/g' holdingRegs.tsv
+```
+
+(The surrounding tabs anchor the match to the whole `type` column, so `uint8be` is not touched.) Keep the out-of-range difference above in mind: after the conversion, values outside −128…127 are no longer wrapped but warned about and dropped.
+
 ## Serial port
 
 If you want to use serial port, you have to include `serialport` package into 'package.json' of your adapter, because `@iobroker/modbus` does not have this dependency by default.
@@ -135,6 +167,10 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@johannes-lode) Fixed writing negative values to `int8be`/`int8le` registers: the codec masked the value to 0…255 and then called `writeInt8`, which rejects that range and threw a `RangeError` (caught by the slave, so the register was silently left unwritten). Negative int8 values are now written correctly
+- (@johannes-lode) Added the register types `signExtendedInt8be`/`signExtendedInt8le`, which sign-extend a signed int8 into the full 16-bit register so a foreign master that reads it as int16 gets the signed value directly (see "Signed int8 in 16-bit registers")
+
 ### 7.6.0 (2026-07-03)
 - (@GermanBluefox) Added Modbus/UDP master support (issue #222): a new `'udp'` connection type served by a UDP datagram transport that reuses the Modbus/TCP MBAP framing (one datagram per request/response)
 

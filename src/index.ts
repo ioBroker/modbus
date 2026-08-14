@@ -7,6 +7,7 @@ import tsv2registers from './convert';
 
 import { Master } from './lib/Master'; // Get common adapter utils
 import Slave from './lib/Slave'; // Get common adapter utils
+import { stringRegisterTypes, variableLengthStringTypes } from './lib/common';
 let serialPortList: (() => Promise<PortInfo[]>) | null = null;
 
 /** A serial PortInfo enriched with a stable physical-USB-port identifier (from /dev/serial/by-path, Linux only) */
@@ -151,6 +152,10 @@ export default class ModbusAdapter extends Adapter {
         uint64le: 4,
         int64be: 4,
         int64le: 4,
+        int64bestr: 4,
+        int64lestr: 4,
+        uint64bestr: 4,
+        uint64lestr: 4,
         floatbe: 2,
         floatle: 2,
         floatsw: 2,
@@ -628,7 +633,10 @@ export default class ModbusAdapter extends Adapter {
         return address + offset;
     }
 
-    async createExtendObject(id: string, objData: ioBroker.StateObject | ioBroker.ChannelObject): Promise<void> {
+    async createExtendObject(
+        id: string,
+        objData: ioBroker.StateObject | ioBroker.ChannelObject | ioBroker.FolderObject,
+    ): Promise<void> {
         const oldObj = await this.getObjectAsync(id);
         if (oldObj) {
             await this.extendObjectAsync(id, objData);
@@ -639,7 +647,7 @@ export default class ModbusAdapter extends Adapter {
 
     async processTasks(
         tasks: (
-            | { name: 'add'; id: string; obj: ioBroker.StateObject | ioBroker.ChannelObject }
+            | { name: 'add'; id: string; obj: ioBroker.StateObject | ioBroker.ChannelObject | ioBroker.FolderObject }
             | { name: 'del'; id: string }
             | { name: 'syncEnums'; id: string; newName: string }
         )[],
@@ -761,6 +769,14 @@ export default class ModbusAdapter extends Adapter {
 
         options.config.disableLogging = params.disableLogging;
         options.config.enableSanitization = !!params.enableSanitization;
+
+        if (options.config.slave) {
+            options.config.notifyOnReadExpire = parseInt(params.notifyOnReadExpire as string, 10) || 0;
+            options.config.notifyOnReadCoils = !!params.notifyOnReadCoils;
+            options.config.notifyOnReadDisInputs = !!params.notifyOnReadDisInputs;
+            options.config.notifyOnReadInputRegs = !!params.notifyOnReadInputRegs;
+            options.config.notifyOnReadHoldingRegs = !!params.notifyOnReadHoldingRegs;
+        }
 
         if (params.type === 'tcp' || params.type === 'udp' || params.type === 'tcprtu' || params.type === 'tcp-ssl') {
             options.config.tcp = {
@@ -946,7 +962,7 @@ export default class ModbusAdapter extends Adapter {
         regName: string,
         regFullName: string,
         tasks: (
-            | { name: 'add'; id: string; obj: ioBroker.StateObject | ioBroker.ChannelObject }
+            | { name: 'add'; id: string; obj: ioBroker.StateObject | ioBroker.ChannelObject | ioBroker.FolderObject }
             | { name: 'del'; id: string }
             | { name: 'syncEnums'; id: string; newName: string }
         )[],
@@ -973,7 +989,7 @@ export default class ModbusAdapter extends Adapter {
                     type:
                         regType === 'coils' || regType === 'disInputs'
                             ? 'boolean'
-                            : ['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(regs[i].type)
+                            : stringRegisterTypes.includes(regs[i].type)
                               ? 'string'
                               : 'number',
                     read: true,
@@ -981,7 +997,7 @@ export default class ModbusAdapter extends Adapter {
                     def:
                         regType === 'coils' || regType === 'disInputs'
                             ? false
-                            : ['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(regs[i].type)
+                            : stringRegisterTypes.includes(regs[i].type)
                               ? ''
                               : 0,
                 },
@@ -1043,6 +1059,62 @@ export default class ModbusAdapter extends Adapter {
                 } as ioBroker.ChannelObject,
             });
         }
+    }
+
+    checkReadNotifyObjects(
+        regType: Modbus.RegisterType,
+        regName: string,
+        regFullName: string,
+        tasks: (
+            | { name: 'add'; id: string; obj: ioBroker.StateObject | ioBroker.ChannelObject | ioBroker.FolderObject }
+            | { name: 'del'; id: string }
+            | { name: 'syncEnums'; id: string; newName: string }
+        )[],
+        newObjects: string[],
+        deviceId: number,
+    ): boolean {
+        const regs = this.config[regType] as Modbus.RegisterInternal[];
+        let count = 0;
+
+        for (const reg of regs) {
+            if (reg.deviceId !== deviceId) {
+                continue;
+            }
+            const notifyId = `readNotify.${reg.id}`;
+            tasks.push({
+                id: notifyId,
+                name: 'add',
+                obj: {
+                    type: 'state',
+                    common: {
+                        name: reg.description || reg.id,
+                        role: 'state',
+                        type: 'number',
+                        read: true,
+                        write: false,
+                        def: 0,
+                    },
+                    native: {},
+                } as ioBroker.StateObject,
+            });
+            newObjects.push(`${this.namespace}.${notifyId}`);
+            count++;
+        }
+
+        if (count) {
+            tasks.push({
+                id: `readNotify.${regName}`,
+                name: 'add',
+                obj: {
+                    type: 'channel',
+                    common: { name: `Read notify: ${regFullName}` },
+                    native: {},
+                } as ioBroker.ChannelObject,
+            });
+            newObjects.push(`${this.namespace}.readNotify.${regName}`);
+        }
+
+        return count > 0;
     }
 
     assignIds(
@@ -1225,7 +1297,9 @@ export default class ModbusAdapter extends Adapter {
                     } else {
                         config[i].factor = factor || 1;
                     }
-                    if (['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(config[i].type)) {
+                    // Only variable-length string types take a user-defined length; the fixed-length
+                    // *str 64-bit types fall through to typeItemsLen (4 registers) like their numeric peers.
+                    if (variableLengthStringTypes.includes(config[i].type)) {
                         config[i].len = parseInt(config[i].len as unknown as string, 10) || 1;
                     } else {
                         config[i].len = ModbusAdapter.typeItemsLen[config[i].type];
@@ -1405,7 +1479,7 @@ export default class ModbusAdapter extends Adapter {
         this.config.holdingRegs.sort(sortByAddress);
 
         const tasks: (
-            | { name: 'add'; id: string; obj: ioBroker.StateObject | ioBroker.ChannelObject }
+            | { name: 'add'; id: string; obj: ioBroker.StateObject | ioBroker.ChannelObject | ioBroker.FolderObject }
             | { name: 'del'; id: string }
             | { name: 'syncEnums'; id: string; newName: string }
         )[] = [];
@@ -1511,6 +1585,58 @@ export default class ModbusAdapter extends Adapter {
                 device.holdingRegs.fullIds = this.config.holdingRegs
                     .filter(e => e.deviceId === deviceId)
                     .map(e => (e as Modbus.RegisterInternal).fullId);
+
+                let hasReadNotify = false;
+                if (options.config.notifyOnReadDisInputs) {
+                    hasReadNotify =
+                        this.checkReadNotifyObjects(
+                            'disInputs',
+                            'discreteInputs',
+                            'Discrete inputs',
+                            tasks,
+                            newObjects,
+                            deviceId,
+                        ) || hasReadNotify;
+                }
+                if (options.config.notifyOnReadCoils) {
+                    hasReadNotify =
+                        this.checkReadNotifyObjects('coils', 'coils', 'Coils', tasks, newObjects, deviceId) ||
+                        hasReadNotify;
+                }
+                if (options.config.notifyOnReadInputRegs) {
+                    hasReadNotify =
+                        this.checkReadNotifyObjects(
+                            'inputRegs',
+                            'inputRegisters',
+                            'Input registers',
+                            tasks,
+                            newObjects,
+                            deviceId,
+                        ) || hasReadNotify;
+                }
+                if (options.config.notifyOnReadHoldingRegs) {
+                    hasReadNotify =
+                        this.checkReadNotifyObjects(
+                            'holdingRegs',
+                            'holdingRegisters',
+                            'Holding registers',
+                            tasks,
+                            newObjects,
+                            deviceId,
+                        ) || hasReadNotify;
+                }
+                if (hasReadNotify) {
+                    tasks.push({
+                        id: 'readNotify',
+                        name: 'add',
+                        obj: {
+                            type: 'folder',
+                            common: { name: 'Read notify' },
+                            native: {},
+                        } as ioBroker.FolderObject,
+                    });
+                    newObjects.push(`${this.namespace}.readNotify`);
+                }
             }
 
             if (!options.config.multiDeviceId) {
@@ -1580,6 +1706,26 @@ export default class ModbusAdapter extends Adapter {
             }
             await this.setStateAsync('info.connectionSlave', '', true);
             newObjects.push(`${this.namespace}.info.connectionSlave`);
+        }
+
+        if (options.config.slave) {
+            if (!(await this.getObjectAsync('info.adapterStarts'))) {
+                await this.setObjectAsync('info.adapterStarts', {
+                    type: 'state',
+                    common: {
+                        name: 'Adapter start count',
+                        role: 'state',
+                        type: 'number',
+                        read: true,
+                        write: true,
+                        def: 0,
+                    },
+                    native: {},
+                });
+            }
+            const startsState = await this.getStateAsync('info.adapterStarts');
+            await this.setStateAsync('info.adapterStarts', ((startsState?.val as number) || 0) + 1, true);
+            newObjects.push(`${this.namespace}.info.adapterStarts`);
         }
 
         // clear unused states

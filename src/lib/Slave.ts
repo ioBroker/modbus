@@ -1,4 +1,4 @@
-import { extractValue, writeValue } from './common';
+import { extractValue, writeValue, stringRegisterTypes } from './common';
 import ModbusServerSerial from './modbus/transports/modbus-server-serial';
 import ModbusServerTcp from './modbus/transports/modbus-server-tcp';
 import { createLoggingWrapper } from './loggingUtils';
@@ -41,6 +41,7 @@ export default class Slave {
      * (a client write is a command that is forwarded to the real device via the master).
      */
     private readonly writeAck: boolean;
+    private readonly readNotifyCounters = new Map<string, number>();
 
     constructor(options: Options, adapter: ioBroker.Adapter) {
         this.objects = options.objects;
@@ -107,7 +108,7 @@ export default class Slave {
                     : 0;
             }
         } else if (type === 'inputRegs' || type === 'holdingRegs') {
-            if (!['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(this.objects[id].native.type)) {
+            if (!stringRegisterTypes.includes(this.objects[id].native.type)) {
                 if (t === 'boolean') {
                     val = state.val ? 1 : 0;
                 } else if (t === 'number') {
@@ -134,6 +135,21 @@ export default class Slave {
             this.adapter.log.error(`Unknown state "${id}" type: ${this.objects[id].native.regType}`);
         }
         return Promise.resolve();
+    }
+
+    private emitReadNotify(valueStateId: string): void {
+        const shortId = valueStateId.slice(this.adapter.namespace.length + 1);
+        const notifyId = `${this.adapter.namespace}.readNotify.${shortId}`;
+        // Counter only: monotonic increment with ack:true. ack:true keeps this out of the
+        // stateChange handler, so the adapter never processes its own writes (no feedback loop).
+        const counter = (this.readNotifyCounters.get(notifyId) ?? 0) + 1;
+        this.readNotifyCounters.set(notifyId, counter);
+        const expire = this.options.config.notifyOnReadExpire;
+        void this.adapter.setState(
+            notifyId,
+            expire ? { val: counter, ack: true, expire } : { val: counter, ack: true },
+            err => err && this.adapter.log.error(`readNotify setState error: ${err.message}`),
+        );
     }
 
     start(): void {
@@ -179,7 +195,10 @@ export default class Slave {
                         port: serverTcp.port || 502,
                         hostname: serverTcp.ip || '0.0.0.0',
                     },
-                    responseDelay: 100,
+                    // No artificial responseDelay for TCP: the delay is applied per request and, combined with the
+                    // shared request queue, serializes all connections. With multiple masters this stacks into
+                    // multi-second latencies (head-of-line blocking) and master timeouts. Omitting it lets the core
+                    // use setImmediate, which yields cooperatively without an artificial per-request wall.
                     coils: Buffer.alloc((this.device.coils.addressHigh + 7) >> 3),
                     discrete: Buffer.alloc((this.device.disInputs.addressHigh + 7) >> 3),
                     input: Buffer.alloc(this.device.inputRegs.addressHigh * 2),
@@ -226,6 +245,18 @@ export default class Slave {
                 }
             });
 
+            this.modbusServer.on('readCoilsRequest', (start: number, quantity: number): void => {
+                if (this.options.config.notifyOnReadCoils) {
+                    const regs = this.device.coils;
+                    for (let i = 0; i < quantity; i++) {
+                        const a = start + i - regs.addressLow;
+                        if (a >= 0 && regs.mapping[a]) {
+                            this.emitReadNotify(regs.mapping[a]);
+                        }
+                    }
+                }
+            });
+
             this.modbusServer.on('readDiscreteInputsRequest', (start: number, quantity: number): void => {
                 const regs = this.device.disInputs;
                 if (
@@ -263,6 +294,15 @@ export default class Slave {
                         data.writeUInt8(byte, byteIndex);
                     }
                 }
+                if (this.options.config.notifyOnReadDisInputs) {
+                    const regsN = this.device.disInputs;
+                    for (let i = 0; i < quantity; i++) {
+                        const a = start + i - regsN.addressLow;
+                        if (a >= 0 && regsN.mapping[a]) {
+                            this.emitReadNotify(regsN.mapping[a]);
+                        }
+                    }
+                }
             });
 
             // let "function" here and not use =>
@@ -295,6 +335,15 @@ export default class Slave {
                         }
                     }
                 }
+                if (this.options.config.notifyOnReadInputRegs) {
+                    const wordStart = start >> 1;
+                    for (let i = 0; i < quantity; i++) {
+                        const a = wordStart + i - regs.addressLow;
+                        if (a >= 0 && regs.mapping[a]) {
+                            this.emitReadNotify(regs.mapping[a]);
+                        }
+                    }
+                }
             });
 
             // let "function" here and not use =>
@@ -324,6 +373,15 @@ export default class Slave {
                             data.writeUInt8(regs.values[i - low] as number, i);
                         } else {
                             data.writeUInt8(0, i);
+                        }
+                    }
+                }
+                if (this.options.config.notifyOnReadHoldingRegs) {
+                    const wordStart = start >> 1;
+                    for (let i = 0; i < quantity; i++) {
+                        const a = wordStart + i - regs.addressLow;
+                        if (a >= 0 && regs.mapping[a]) {
+                            this.emitReadNotify(regs.mapping[a]);
                         }
                     }
                 }
@@ -394,7 +452,7 @@ export default class Slave {
                     try {
                         let val = extractValue(native.type, native.len, buf, 0);
 
-                        if (!['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(native.type)) {
+                        if (!stringRegisterTypes.includes(native.type)) {
                             val = (val as number) * native.factor + native.offset;
                             val = Math.round((val as number) * this.options.config.round) / this.options.config.round;
                         }
@@ -411,8 +469,12 @@ export default class Slave {
                         this.adapter.log.error(`Can not set value: ${(err as Error).message}`);
                     }
 
-                    regs.values[a] = buf[0];
-                    regs.values[a + 1] = buf[1];
+                    // regs.values is byte-indexed (see write() and postWriteMultipleRegistersRequest),
+                    // so a register index `a` must be scaled by 2. Without the *2 an fc6 write to
+                    // register `a` corrupts the bytes of register floor(a/2) instead (e.g. a write to
+                    // the control register clobbered the middle bytes of a neighbouring int32).
+                    regs.values[a * 2] = buf[0];
+                    regs.values[a * 2 + 1] = buf[1];
                 }
             });
 
@@ -437,7 +499,7 @@ export default class Slave {
 
                         try {
                             let val = extractValue(native.type, native.len, data, i + start);
-                            if (!['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(native.type)) {
+                            if (!stringRegisterTypes.includes(native.type)) {
                                 val = (val as number) * native.factor + native.offset;
                                 val =
                                     Math.round((val as number) * this.options.config.round) / this.options.config.round;
@@ -454,8 +516,12 @@ export default class Slave {
                             this.adapter.log.error(`Can not set value: ${err.message}`);
                         }
 
+                        // Source bytes live at the absolute register position i + start (same offset
+                        // extractValue reads above), not at the block start. Using start * 2 copied the
+                        // first register's bytes into every subsequent mapped register of a multi-register
+                        // fc16 write, so their read-back returned the first register's value.
                         for (let k = 0; k < native.len * 2; k++) {
-                            regs.values[a * 2 + k] = data.readUInt8(start * 2 + k);
+                            regs.values[a * 2 + k] = data.readUInt8((i + start) * 2 + k);
                         }
                         i += native.len;
                     } else {

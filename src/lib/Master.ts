@@ -1,5 +1,5 @@
 import type { DeviceMasterOption, MasterDevice, Options, RegisterInternal, RegisterType } from '../types';
-import { extractValue, writeValue } from './common';
+import { extractValue, writeValue, stringRegisterTypes } from './common';
 import type { ModbusReadResultBinary } from './modbus/modbus-client-core';
 import ModbusClientSerial from './modbus/transports/modbus-client-serial';
 import ModbusClientTcp from './modbus/transports/modbus-client-tcp';
@@ -977,7 +977,7 @@ export class Master {
                         obj.native.type === 'floatsb';
                 }
 
-                if (!['string', 'stringle', 'string16', 'string16le', 'rawhex'].includes(obj.native.type)) {
+                if (!stringRegisterTypes.includes(obj.native.type)) {
                     val = parseFloat(val as string);
                     val = (val - obj.native.offset) / obj.native.factor;
                     if (!obj.native.float) {
