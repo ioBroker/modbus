@@ -342,7 +342,7 @@ export class Master {
             } catch (err) {
                 const errorMsg = `[DevID_${regs.deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ${JSON.stringify(err)}`;
                 this.adapter.log.warn(errorMsg);
-                return;
+                throw err;
             }
             if (response.data?.length) {
                 for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
@@ -686,7 +686,7 @@ export class Master {
             } catch (err) {
                 const errorMsg = `[DevID_${regs.deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ${JSON.stringify(err)}`;
                 this.adapter.log.warn(errorMsg);
-                return;
+                throw err;
             }
         } else {
             this.adapter.log.debug(`Poll canceled, because no connection`);
@@ -852,6 +852,9 @@ export class Master {
         try {
             await this.#pollBinariesBlocks(device, 'disInputs');
         } catch (err) {
+            if (this.reconnectTimeout || !this.connected || this.isStop) {
+                throw err;
+            }
             pollErrors.push({ desc: 'pollBinariesBlocks', error: err });
         }
 
@@ -859,6 +862,9 @@ export class Master {
         try {
             await this.#pollBinariesBlocks(device, 'coils');
         } catch (err) {
+            if (this.reconnectTimeout || !this.connected || this.isStop) {
+                throw err;
+            }
             pollErrors.push({ desc: 'pollBinariesBlocks', error: err });
         }
 
@@ -866,6 +872,9 @@ export class Master {
         try {
             await this.#pollFloatsBlocks(device, 'inputRegs');
         } catch (err) {
+            if (this.reconnectTimeout || !this.connected || this.isStop) {
+                throw err;
+            }
             pollErrors.push({ desc: 'pollFloatsBlocks', error: err });
         }
 
@@ -873,6 +882,9 @@ export class Master {
         try {
             await this.#pollFloatsBlocks(device, 'holdingRegs');
         } catch (err) {
+            if (this.reconnectTimeout || !this.connected || this.isStop) {
+                throw err;
+            }
             pollErrors.push({ desc: 'pollFloatsBlocks', error: err });
         }
 
@@ -921,14 +933,23 @@ export class Master {
     async #poll(): Promise<void> {
         let anyError: Error | undefined;
         for (const id of this.deviceIds) {
+            if (this.reconnectTimeout || !this.connected || this.isStop) {
+                break;
+            }
             try {
                 await this.#pollDevice(this.devices[id] as MasterDevice);
             } catch (err) {
                 anyError = err;
+                if (this.reconnectTimeout || !this.connected || this.isStop) {
+                    break;
+                }
             }
             // Per-device wait time overrides the global one for this device (issue #605)
             const waitTime = this.options.config.deviceTimeouts?.[id]?.waitTime ?? this.options.config.waitTime;
             await this.#waitAsync(waitTime);
+        }
+        if (this.reconnectTimeout || !this.connected || this.isStop) {
+            return;
         }
         if (anyError) {
             if (!this.reconnectTimeout) {
