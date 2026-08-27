@@ -209,6 +209,15 @@ export class Master {
                     this.nextPoll = null;
                 }
 
+                // The `close` event of the socket that was dropped on purpose can arm a new reconnect
+                // right after `#reconnect()` cleared it. We are connected again, so that timer would
+                // only tear the fresh connection down — and until it fires, `#pollInterrupted` would
+                // abort the cycle started below before it sends its first request.
+                if (this.reconnectTimeout) {
+                    adapter.clearTimeout(this.reconnectTimeout);
+                    this.reconnectTimeout = null;
+                }
+
                 void this.#poll().catch(err => this.adapter.log.error(err));
 
                 this.keepAliveTimeout && adapter.clearTimeout(this.keepAliveTimeout);
@@ -253,6 +262,16 @@ export class Master {
             adapter.log.warn(`Error: ${JSON.stringify(err)}`);
             this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
         });
+    }
+
+    /**
+     * True as soon as the current polling cycle must not issue any further requests: a reconnect is
+     * already pending (the request FIFO has been trashed), the client is disconnected, or the master
+     * is shutting down. Requests queued after that point survive the cleanup and would be replayed on
+     * the reconnected socket, in parallel to the fresh cycle started by the `connect` handler.
+     */
+    get #pollInterrupted(): boolean {
+        return !!this.reconnectTimeout || !this.connected || this.isStop;
     }
 
     #waitAsync(ms: number | undefined): Promise<void> {
@@ -342,7 +361,15 @@ export class Master {
             } catch (err) {
                 const errorMsg = `[DevID_${regs.deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ${JSON.stringify(err)}`;
                 this.adapter.log.warn(errorMsg);
-                throw err;
+                // Only abort the whole cycle when the connection itself is gone. A plain Modbus
+                // exception response (illegal address, illegal function, device busy) leaves the
+                // socket intact, so the remaining blocks of this register type must still be read
+                // - otherwise a single register the device rejects would permanently hide every
+                // block behind it.
+                if (this.#pollInterrupted) {
+                    throw err;
+                }
+                return;
             }
             if (response.data?.length) {
                 for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
@@ -408,10 +435,11 @@ export class Master {
     ): Promise<void> {
         const regs = device[regType];
         for (let n = 0; n < regs.blocks.length; n++) {
-            if (this.connected && !this.isStop) {
-                await this.#pollBinariesBlock(device, regType, n);
-                await this.#waitAsync(this.options.config.readInterval);
+            if (this.#pollInterrupted) {
+                break;
             }
+            await this.#pollBinariesBlock(device, regType, n);
+            await this.#waitAsync(this.options.config.readInterval);
         }
     }
 
@@ -686,7 +714,15 @@ export class Master {
             } catch (err) {
                 const errorMsg = `[DevID_${regs.deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ${JSON.stringify(err)}`;
                 this.adapter.log.warn(errorMsg);
-                throw err;
+                // Only abort the whole cycle when the connection itself is gone. A plain Modbus
+                // exception response (illegal address, illegal function, device busy) leaves the
+                // socket intact, so the remaining blocks of this register type must still be read
+                // - otherwise a single register the device rejects would permanently hide every
+                // block behind it.
+                if (this.#pollInterrupted) {
+                    throw err;
+                }
+                return;
             }
         } else {
             this.adapter.log.debug(`Poll canceled, because no connection`);
@@ -763,10 +799,11 @@ export class Master {
     ): Promise<void> {
         const regs = device[regType];
         for (let n = 0; n < regs.blocks.length; n++) {
-            if (this.connected && !this.isStop) {
-                await this.#pollFloatBlock(device, regType, n);
-                await this.#waitAsync(this.options.config.readInterval);
+            if (this.#pollInterrupted) {
+                break;
             }
+            await this.#pollFloatBlock(device, regType, n);
+            await this.#waitAsync(this.options.config.readInterval);
         }
     }
 
@@ -852,7 +889,7 @@ export class Master {
         try {
             await this.#pollBinariesBlocks(device, 'disInputs');
         } catch (err) {
-            if (this.reconnectTimeout || !this.connected || this.isStop) {
+            if (this.#pollInterrupted) {
                 throw err;
             }
             pollErrors.push({ desc: 'pollBinariesBlocks', error: err });
@@ -862,7 +899,7 @@ export class Master {
         try {
             await this.#pollBinariesBlocks(device, 'coils');
         } catch (err) {
-            if (this.reconnectTimeout || !this.connected || this.isStop) {
+            if (this.#pollInterrupted) {
                 throw err;
             }
             pollErrors.push({ desc: 'pollBinariesBlocks', error: err });
@@ -872,7 +909,7 @@ export class Master {
         try {
             await this.#pollFloatsBlocks(device, 'inputRegs');
         } catch (err) {
-            if (this.reconnectTimeout || !this.connected || this.isStop) {
+            if (this.#pollInterrupted) {
                 throw err;
             }
             pollErrors.push({ desc: 'pollFloatsBlocks', error: err });
@@ -882,7 +919,7 @@ export class Master {
         try {
             await this.#pollFloatsBlocks(device, 'holdingRegs');
         } catch (err) {
-            if (this.reconnectTimeout || !this.connected || this.isStop) {
+            if (this.#pollInterrupted) {
                 throw err;
             }
             pollErrors.push({ desc: 'pollFloatsBlocks', error: err });
@@ -933,14 +970,14 @@ export class Master {
     async #poll(): Promise<void> {
         let anyError: Error | undefined;
         for (const id of this.deviceIds) {
-            if (this.reconnectTimeout || !this.connected || this.isStop) {
+            if (this.#pollInterrupted) {
                 break;
             }
             try {
                 await this.#pollDevice(this.devices[id] as MasterDevice);
             } catch (err) {
                 anyError = err;
-                if (this.reconnectTimeout || !this.connected || this.isStop) {
+                if (this.#pollInterrupted) {
                     break;
                 }
             }
@@ -948,7 +985,7 @@ export class Master {
             const waitTime = this.options.config.deviceTimeouts?.[id]?.waitTime ?? this.options.config.waitTime;
             await this.#waitAsync(waitTime);
         }
-        if (this.reconnectTimeout || !this.connected || this.isStop) {
+        if (this.#pollInterrupted) {
             return;
         }
         if (anyError) {
