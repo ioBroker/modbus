@@ -1,4 +1,4 @@
-import ModbusServerCore from '../modbus-server-core';
+import ModbusServerCore, { type ModbusServerCoreOptions } from '../modbus-server-core';
 import crc16modbus from '../../crc16modbus';
 import type SerialPort from 'serialport';
 
@@ -9,6 +9,8 @@ export default class ModbusServerSerial extends ModbusServerCore {
     private fifo: { pdu: Buffer; address: number; originalFrame: Buffer }[] = [];
     private serialPort: SerialPort.SerialPort | null = null;
     private readonly deviceId: number = 1;
+    /** All addresses this server answers to (issue #813); defaults to `[deviceId]` */
+    private readonly deviceIds: number[];
 
     private serial: {
         portName: string;
@@ -18,26 +20,23 @@ export default class ModbusServerSerial extends ModbusServerCore {
         parity?: 'none' | 'even' | 'mark' | 'odd' | 'space';
     };
 
-    constructor(options: {
-        serial: {
-            portName: string;
-            baudRate?: number;
-            dataBits?: 5 | 6 | 7 | 8;
-            stopBits?: 1 | 2;
-            parity?: 'none' | 'even' | 'mark' | 'odd' | 'space';
-        };
-        deviceId?: number;
-        logger: ioBroker.Logger;
-        timeout?: number;
-        responseDelay?: number;
-        coils?: Buffer;
-        holding?: Buffer;
-        input?: Buffer;
-        discrete?: Buffer;
-    }) {
+    constructor(
+        options: ModbusServerCoreOptions & {
+            serial: {
+                portName: string;
+                baudRate?: number;
+                dataBits?: 5 | 6 | 7 | 8;
+                stopBits?: 1 | 2;
+                parity?: 'none' | 'even' | 'mark' | 'odd' | 'space';
+            };
+            deviceId?: number;
+            deviceIds?: number[];
+        },
+    ) {
         super(options);
         this.serial = options.serial;
         this.deviceId = options.deviceId || 1;
+        this.deviceIds = options.deviceIds?.length ? [...options.deviceIds] : [this.deviceId];
 
         if (!this.serial.portName) {
             throw new Error('No portname specified for serial server.');
@@ -109,9 +108,8 @@ export default class ModbusServerSerial extends ModbusServerCore {
                 const address = this.buffer.readUInt8(0);
                 const functionCode = this.buffer.readUInt8(1);
 
-                // Skip frames not for our address (0 = broadcast, our deviceId)
-                const deviceId = this.deviceId || 1;
-                if (address !== 0 && address !== deviceId) {
+                // Skip frames not for us (0 = broadcast, one of our device IDs)
+                if (address !== 0 && !this.deviceIds.includes(address)) {
                     // Remove first byte and continue looking
                     this.buffer = this.buffer.slice(1);
                     continue;
@@ -201,7 +199,7 @@ export default class ModbusServerSerial extends ModbusServerCore {
 
         const current = this.fifo.shift()!;
 
-        this.onData(current.pdu, response => {
+        const respond = (response: Buffer): void => {
             this.log.debug('Sending RTU response');
 
             // Build RTU response frame: Address + Response PDU + CRC
@@ -228,7 +226,11 @@ export default class ModbusServerSerial extends ModbusServerCore {
                 this.log.error('Serial port not open, cannot send response');
                 this.setState('ready');
             }
-        });
+        };
+
+        // A broadcast (address 0) is answered by the default unit, any other address selects its own
+        // register space when several device IDs are served (issue #813)
+        this.onData(current.pdu, respond, current.address || undefined);
     };
 
     close(cb?: (err?: Error | null) => void): void {

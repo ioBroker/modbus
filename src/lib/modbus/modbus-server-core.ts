@@ -3,35 +3,71 @@ import Put from '../Put';
 
 type ModbusFcState = 'init' | 'ready' | 'processing';
 
+/** Register buffers of one Modbus unit (= slave/device ID) */
+export interface ModbusUnitBuffers {
+    coils?: Buffer;
+    holding?: Buffer;
+    input?: Buffer;
+    discrete?: Buffer;
+}
+
+export interface ModbusServerCoreOptions extends ModbusUnitBuffers {
+    logger: ioBroker.Logger;
+    timeout?: number;
+    responseDelay?: number;
+    /**
+     * Register buffers per unit ID (issue #813). Takes precedence over the flat
+     * `coils`/`holding`/`input`/`discrete` options, which serve one single unit.
+     */
+    units?: { [unitId: number]: ModbusUnitBuffers };
+    /** Unit served for requests with a neutral unit ID (0 or 255). Default: the lowest configured one */
+    defaultUnitId?: number;
+}
+
 export default class ModbusServerCore extends EventEmitter {
     public readonly log: ioBroker.Logger;
-    private data: {
-        coils: Buffer;
-        holding: Buffer;
-        input: Buffer;
-        discrete: Buffer;
-    };
+    /** Register buffers per unit ID: a slave/proxy may serve several device IDs at once (issue #813) */
+    private readonly data: { [unitId: number]: Required<ModbusUnitBuffers> } = {};
+    private readonly unitIds: number[];
+    private readonly defaultUnitId: number;
 
-    private readonly handler: { [fc: number]: (pdu: Buffer, response: (result: Buffer) => void) => void } = {};
+    private readonly handler: {
+        [fc: number]: (pdu: Buffer, response: (result: Buffer) => void, unitId?: number) => void;
+    } = {};
     private currentState: ModbusFcState = 'init';
 
-    constructor(options: {
-        logger: ioBroker.Logger;
-        responseDelay?: number;
-        coils?: Buffer;
-        holding?: Buffer;
-        input?: Buffer;
-        discrete?: Buffer;
-    }) {
+    constructor(options: ModbusServerCoreOptions) {
         super();
         this.log = options.logger;
 
-        this.data = {
-            coils: options.coils || Buffer.alloc(1024),
-            holding: options.holding || Buffer.alloc(1024),
-            input: options.input || Buffer.alloc(1024),
-            discrete: options.discrete || Buffer.alloc(1024),
-        };
+        const units =
+            options.units && Object.keys(options.units).length
+                ? options.units
+                : {
+                      [options.defaultUnitId ?? 1]: {
+                          coils: options.coils,
+                          holding: options.holding,
+                          input: options.input,
+                          discrete: options.discrete,
+                      },
+                  };
+
+        for (const key of Object.keys(units)) {
+            const unitId = parseInt(key, 10);
+            const buffers = units[unitId] || {};
+            this.data[unitId] = {
+                coils: buffers.coils || Buffer.alloc(1024),
+                holding: buffers.holding || Buffer.alloc(1024),
+                input: buffers.input || Buffer.alloc(1024),
+                discrete: buffers.discrete || Buffer.alloc(1024),
+            };
+        }
+
+        this.unitIds = Object.keys(this.data).map(unitId => parseInt(unitId, 10));
+        this.defaultUnitId =
+            options.defaultUnitId !== undefined && this.data[options.defaultUnitId]
+                ? options.defaultUnitId
+                : this.unitIds[0];
 
         this.handler = {
             1: this.onReadCoils,
@@ -48,12 +84,13 @@ export default class ModbusServerCore extends EventEmitter {
             const responseDelay = options.responseDelay;
             Object.keys(this.handler).forEach(fc => {
                 const originalHandler = this.handler[parseInt(fc, 10)];
-                this.handler[parseInt(fc, 10)] = (pdu, cb) => setTimeout(originalHandler, responseDelay, pdu, cb);
+                this.handler[parseInt(fc, 10)] = (pdu, cb, unitId) =>
+                    setTimeout(originalHandler, responseDelay, pdu, cb, unitId);
             });
         } else {
             Object.keys(this.handler).forEach(fc => {
                 const originalHandler = this.handler[parseInt(fc, 10)];
-                this.handler[parseInt(fc, 10)] = (pdu, cb) => setImmediate(originalHandler, pdu, cb);
+                this.handler[parseInt(fc, 10)] = (pdu, cb, unitId) => setImmediate(originalHandler, pdu, cb, unitId);
             });
         }
     }
@@ -75,7 +112,7 @@ export default class ModbusServerCore extends EventEmitter {
         this.emit(`newState_${newState}`);
     }
 
-    onData = (pdu: Buffer, callback: (response: Buffer) => void): void => {
+    onData = (pdu: Buffer, callback: (response: Buffer) => void, unitId?: number): void => {
         // get fc and byteCount in advance
         const fc = pdu.readUInt8(0);
         // const byteCount   = pdu.readUInt8(1);
@@ -97,17 +134,61 @@ export default class ModbusServerCore extends EventEmitter {
                     .buffer(),
             );
         } else {
-            reqHandler(pdu, response => callback(response));
+            const unit = this.resolveUnitId(unitId);
+
+            if (unit === undefined) {
+                // Not our unit: answer like a Modbus gateway whose target device did not respond (0x0B)
+                this.log.debug(`FC${fc} for unit ID ${unitId}, but only ${this.unitIds.join(', ')} are served`);
+
+                callback(
+                    new Put()
+                        .word8(fc + 0x80)
+                        .word8(0x0b)
+                        .buffer(),
+                );
+            } else {
+                reqHandler(pdu, response => callback(response), unit);
+            }
         }
     };
 
-    getCoils = (): Buffer => this.data.coils;
-    getInput = (): Buffer => this.data.input;
-    getHolding = (): Buffer => this.data.holding;
-    getDiscrete = (): Buffer => this.data.discrete;
+    /**
+     * Map the unit ID of an incoming request to a served one.
+     *
+     * A server with only one unit answers every unit ID, because many Modbus TCP clients send 0 or 255
+     * instead of the real one. As soon as several units are served, the request is routed by its unit ID;
+     * 0 (broadcast) and 255 ("unused") then fall back to the default unit. `undefined` means: not served.
+     */
+    resolveUnitId = (unitId?: number): number | undefined => {
+        if (this.unitIds.length < 2) {
+            return this.defaultUnitId;
+        }
+        if (unitId !== undefined && this.data[unitId]) {
+            return unitId;
+        }
+        if (unitId === undefined || unitId === 0 || unitId === 255) {
+            return this.defaultUnitId;
+        }
+        return undefined;
+    };
+
+    /** Unit IDs served by this server */
+    getUnitIds = (): number[] => [...this.unitIds];
+
+    #buffers = (unitId?: number): Required<ModbusUnitBuffers> =>
+        this.data[unitId !== undefined && this.data[unitId] ? unitId : this.defaultUnitId];
+
+    getCoils = (unitId?: number): Buffer => this.#buffers(unitId).coils;
+    getInput = (unitId?: number): Buffer => this.#buffers(unitId).input;
+    getHolding = (unitId?: number): Buffer => this.#buffers(unitId).holding;
+    getDiscrete = (unitId?: number): Buffer => this.#buffers(unitId).discrete;
 
     // FC 1
-    onReadCoils = (pdu: Buffer, cb: (pdu: Buffer, response?: (result: Buffer) => void) => void): void => {
+    onReadCoils = (
+        pdu: Buffer,
+        cb: (pdu: Buffer, response?: (result: Buffer) => void) => void,
+        unitId?: number,
+    ): void => {
         if (pdu.length !== 5) {
             this.log.warn(`wrong pdu length for coils: ${pdu.length}. Expected 5`);
             cb(new Put().word8(0x81).word8(0x02).buffer());
@@ -116,9 +197,9 @@ export default class ModbusServerCore extends EventEmitter {
             const start = pdu.readUInt16BE(1);
             const quantity = pdu.readUInt16BE(3);
 
-            this.emit('readCoilsRequest', start, quantity);
+            this.emit('readCoilsRequest', start, quantity, unitId);
 
-            const mem = this.getCoils();
+            const mem = this.getCoils(unitId);
 
             if (!quantity || start + quantity > mem.length * 8) {
                 this.log.warn(
@@ -153,7 +234,11 @@ export default class ModbusServerCore extends EventEmitter {
     };
 
     // FC 2
-    onReadDiscreteInputs = (pdu: Buffer, cb: (pdu: Buffer, response?: (result: Buffer) => void) => void): void => {
+    onReadDiscreteInputs = (
+        pdu: Buffer,
+        cb: (pdu: Buffer, response?: (result: Buffer) => void) => void,
+        unitId?: number,
+    ): void => {
         if (pdu.length !== 5) {
             this.log.warn(`wrong pdu length for discrete inputs: ${pdu.length}. Expected 5`);
             cb(new Put().word8(0x82).word8(0x02).buffer());
@@ -162,9 +247,9 @@ export default class ModbusServerCore extends EventEmitter {
             const start = pdu.readUInt16BE(1);
             const quantity = pdu.readUInt16BE(3);
 
-            this.emit('readDiscreteInputsRequest', start, quantity);
+            this.emit('readDiscreteInputsRequest', start, quantity, unitId);
 
-            const mem = this.getDiscrete();
+            const mem = this.getDiscrete(unitId);
 
             if (!quantity || start + quantity > mem.length * 8) {
                 this.log.warn(
@@ -199,7 +284,11 @@ export default class ModbusServerCore extends EventEmitter {
     };
 
     // FC 3
-    onReadHoldingRegisters = (pdu: Buffer, cb: (pdu: Buffer, response?: (result: Buffer) => void) => void): void => {
+    onReadHoldingRegisters = (
+        pdu: Buffer,
+        cb: (pdu: Buffer, response?: (result: Buffer) => void) => void,
+        unitId?: number,
+    ): void => {
         if (pdu.length !== 5) {
             this.log.warn(`wrong pdu length for holding registers: ${pdu.length}. Expected 5`);
             cb(new Put().word8(0x83).word8(0x02).buffer());
@@ -209,9 +298,9 @@ export default class ModbusServerCore extends EventEmitter {
             const byteStart = start * 2;
             const quantity = pdu.readUInt16BE(3);
 
-            this.emit('readHoldingRegistersRequest', byteStart, quantity);
+            this.emit('readHoldingRegistersRequest', byteStart, quantity, unitId);
 
-            const mem = this.getHolding();
+            const mem = this.getHolding(unitId);
 
             if (!quantity || byteStart + quantity * 2 > mem.length) {
                 this.log.warn(
@@ -232,7 +321,11 @@ export default class ModbusServerCore extends EventEmitter {
     };
 
     // FC 4
-    onReadInputRegisters = (pdu: Buffer, cb: (pdu: Buffer, response?: (result: Buffer) => void) => void): void => {
+    onReadInputRegisters = (
+        pdu: Buffer,
+        cb: (pdu: Buffer, response?: (result: Buffer) => void) => void,
+        unitId?: number,
+    ): void => {
         if (pdu.length !== 5) {
             this.log.warn(`wrong pdu length for input registers: ${pdu.length}. Expected 5`);
             cb(new Put().word8(0x84).word8(0x02).buffer());
@@ -242,9 +335,9 @@ export default class ModbusServerCore extends EventEmitter {
             const byteStart = start * 2;
             const quantity = pdu.readUInt16BE(3);
 
-            this.emit('readInputRegistersRequest', byteStart, quantity);
+            this.emit('readInputRegistersRequest', byteStart, quantity, unitId);
 
-            const mem = this.getInput();
+            const mem = this.getInput(unitId);
 
             if (!quantity || byteStart + quantity * 2 > mem.length) {
                 this.log.warn(
@@ -264,7 +357,11 @@ export default class ModbusServerCore extends EventEmitter {
     };
 
     // FC 5
-    onWriteSingleCoil = (pdu: Buffer, cb: (pdu: Buffer, response?: (result: Buffer) => void) => void): void => {
+    onWriteSingleCoil = (
+        pdu: Buffer,
+        cb: (pdu: Buffer, response?: (result: Buffer) => void) => void,
+        unitId?: number,
+    ): void => {
         if (pdu.length !== 5) {
             cb(new Put().word8(0x85).word8(0x02).buffer());
         } else {
@@ -276,9 +373,9 @@ export default class ModbusServerCore extends EventEmitter {
                 this.log.warn(`FC${fc} write request outside coils boundaries: from ${address}, value ${value}`);
                 cb(new Put().word8(0x85).word8(0x03).buffer());
             } else {
-                this.emit('preWriteSingleCoilRequest', address, value);
+                this.emit('preWriteSingleCoilRequest', address, value, unitId);
 
-                const mem = this.getCoils();
+                const mem = this.getCoils(unitId);
 
                 if (address + 1 > mem.length * 8) {
                     this.log.warn(
@@ -301,7 +398,7 @@ export default class ModbusServerCore extends EventEmitter {
 
                     mem.writeUInt8(newValue, Math.floor(address / 8));
 
-                    this.emit('postWriteSingleCoilRequest', address, value);
+                    this.emit('postWriteSingleCoilRequest', address, value, unitId);
 
                     this.log.debug(`FC${fc} finished writing single coil: at ${address}, value ${value}`);
                     cb(response.buffer());
@@ -311,7 +408,11 @@ export default class ModbusServerCore extends EventEmitter {
     };
 
     // FC 6
-    onWriteSingleRegister = (pdu: Buffer, cb: (pdu: Buffer, response?: (result: Buffer) => void) => void): void => {
+    onWriteSingleRegister = (
+        pdu: Buffer,
+        cb: (pdu: Buffer, response?: (result: Buffer) => void) => void,
+        unitId?: number,
+    ): void => {
         this.log.debug('handling write single register request.');
 
         if (pdu.length !== 5) {
@@ -323,9 +424,9 @@ export default class ModbusServerCore extends EventEmitter {
             const byteAddress = address * 2;
             const value = pdu.readUInt16BE(3);
 
-            this.emit('preWriteSingleRegisterRequest', byteAddress, value);
+            this.emit('preWriteSingleRegisterRequest', byteAddress, value, unitId);
 
-            const mem = this.getHolding();
+            const mem = this.getHolding(unitId);
 
             if (byteAddress + 2 > mem.length) {
                 this.log.warn(
@@ -335,7 +436,7 @@ export default class ModbusServerCore extends EventEmitter {
             } else {
                 const response = new Put().word8(0x06).word16be(address).word16be(value).buffer();
                 mem.writeUInt16BE(value, byteAddress);
-                this.emit('postWriteSingleRegisterRequest', byteAddress, value);
+                this.emit('postWriteSingleRegisterRequest', byteAddress, value, unitId);
                 // this.log.debug(`FC${fc} finished writing single holding register: at ${address}, value ${value}`);
                 cb(response);
             }
@@ -343,7 +444,11 @@ export default class ModbusServerCore extends EventEmitter {
     };
 
     // FC 15
-    onWriteMultipleCoils = (pdu: Buffer, cb: (pdu: Buffer, response?: (result: Buffer) => void) => void): void => {
+    onWriteMultipleCoils = (
+        pdu: Buffer,
+        cb: (pdu: Buffer, response?: (result: Buffer) => void) => void,
+        unitId?: number,
+    ): void => {
         this.log.debug('handling write multiple coils request.');
 
         if (pdu.length < 3) {
@@ -355,9 +460,9 @@ export default class ModbusServerCore extends EventEmitter {
             const quantity = pdu.readUInt16BE(3);
             const byteCount = pdu.readUInt8(5);
 
-            this.emit('preWriteMultipleCoilsRequest', start, quantity, byteCount);
+            this.emit('preWriteMultipleCoilsRequest', start, quantity, byteCount, unitId);
 
-            const mem = this.getCoils();
+            const mem = this.getCoils(unitId);
 
             // error response
             if (!quantity || start + quantity > mem.length * 8) {
@@ -394,7 +499,7 @@ export default class ModbusServerCore extends EventEmitter {
                     }
                 }
 
-                this.emit('postWriteMultipleCoilsRequest', start, quantity, byteCount);
+                this.emit('postWriteMultipleCoilsRequest', start, quantity, byteCount, unitId);
 
                 cb(response);
             }
@@ -402,7 +507,11 @@ export default class ModbusServerCore extends EventEmitter {
     };
 
     // FC 16
-    onWriteMultipleRegisters = (pdu: Buffer, cb: (pdu: Buffer, response?: (result: Buffer) => void) => void): void => {
+    onWriteMultipleRegisters = (
+        pdu: Buffer,
+        cb: (pdu: Buffer, response?: (result: Buffer) => void) => void,
+        unitId?: number,
+    ): void => {
         if (pdu.length < 3) {
             this.log.warn(`wrong pdu length for holding registers: ${pdu.length}. Expected 3`);
             cb(new Put().word8(0x90).word8(0x02).buffer());
@@ -417,9 +526,9 @@ export default class ModbusServerCore extends EventEmitter {
                 this.log.warn(`FC${fc} write length is too long: ${quantity}, len ${quantity}. Expected max len 123`);
                 cb(new Put().word8(0x90).word8(0x03).buffer());
             } else {
-                this.emit('preWriteMultipleRegistersRequest', byteStart, quantity, byteCount);
+                this.emit('preWriteMultipleRegistersRequest', byteStart, quantity, byteCount, unitId);
 
-                const mem = this.getHolding();
+                const mem = this.getHolding(unitId);
 
                 if (!quantity || byteStart + quantity * 2 > mem.length) {
                     this.log.warn(
@@ -435,7 +544,7 @@ export default class ModbusServerCore extends EventEmitter {
                         j++;
                     }
 
-                    this.emit('postWriteMultipleRegistersRequest', byteStart, quantity, byteCount);
+                    this.emit('postWriteMultipleRegistersRequest', byteStart, quantity, byteCount, unitId);
 
                     cb(response);
                 }

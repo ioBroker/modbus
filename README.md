@@ -207,6 +207,12 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@GermanBluefox) Fixed the proxy/slave server ignoring the Modbus unit ID of a request (ioBroker.modbus issue #813): the built-in server served the register buffers of the FIRST device only, so with "Multi device IDs" every unit ID answered with the data of that device. Identical devices share their register map, so the polled values of all device IDs overwrote each other and a client write for unit 2 was applied to the state of device 1
+- (@GermanBluefox) The server now keeps one register space per device ID and routes every request by its unit ID. A single configured device still answers every unit ID, because many Modbus TCP clients send 0 or 255; with several devices 0 and 255 address the default device ID and an unknown unit ID is answered with exception 0x0B (gateway target device failed to respond) instead of foreign data
+- (@GermanBluefox) The RTU slave answers all configured device IDs, not only the default one
+- (@GermanBluefox) Added regression tests for the unit ID routing of reads, writes and unknown units
+
 ### 7.7.1 (2026-08-27)
 - (@nobl) Fixed stale and overlapping polling cycles after a reconnect (ioBroker.modbus issue #595): a block read error was logged and swallowed, so the polling loop kept running after the request timeout had already trashed the socket and cleared the request FIFO. The next register request was queued after that cleanup and was therefore sent on the reconnected socket, before the fresh cycle started by the `connect` handler — two polling cycles then ran in parallel. A pending reconnect, a lost connection or a stopping master now aborts the remaining blocks, register types and device IDs of the running cycle
 - (@GermanBluefox) Limited that abort to connection failures: a plain Modbus exception response (illegal data address, illegal function, device busy) leaves the socket intact, so the remaining blocks of that register type are read as before. Otherwise a single register the device rejects would have permanently hidden every block behind it, because the block order is fixed

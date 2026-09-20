@@ -1,4 +1,5 @@
 import { extractValue, writeValue, stringRegisterTypes } from './common';
+import type { ModbusUnitBuffers } from './modbus/modbus-server-core';
 import ModbusServerSerial from './modbus/transports/modbus-server-serial';
 import ModbusServerTcp from './modbus/transports/modbus-server-tcp';
 import { createLoggingWrapper } from './loggingUtils';
@@ -29,7 +30,11 @@ import type { SlaveDevice, Options, DeviceSlaveOption, RegisterType } from '../t
 
 export default class Slave {
     private readonly objects: Options['objects'];
-    private readonly device: SlaveDevice;
+    /** All served devices, keyed by their Modbus unit/device ID (issue #813) */
+    private readonly devices: { [deviceId: number]: SlaveDevice };
+    private readonly deviceIds: number[];
+    /** Unit used for requests with a neutral unit ID (0/255) and for states without a device ID */
+    private readonly defaultDeviceId: number;
     private delayStart = true;
     private modbusServer: ModbusServerTcp | ModbusServerSerial | null = null;
     private adapter: ioBroker.Adapter;
@@ -45,7 +50,13 @@ export default class Slave {
 
     constructor(options: Options, adapter: ioBroker.Adapter) {
         this.objects = options.objects;
-        this.device = options.devices[Object.keys(options.devices).map(id => parseInt(id, 10))[0]] as SlaveDevice;
+        this.devices = options.devices as { [deviceId: number]: SlaveDevice };
+        this.deviceIds = Object.keys(options.devices)
+            .map(id => parseInt(id, 10))
+            .sort((a, b) => a - b);
+        this.defaultDeviceId = this.devices[options.config.defaultDeviceId]
+            ? options.config.defaultDeviceId
+            : this.deviceIds[0];
         this.adapter = adapter;
         this.options = options;
         // In proxy mode the master owns info.connection (device link); the slave server reports its clients separately
@@ -71,6 +82,22 @@ export default class Slave {
         });
     }
 
+    /**
+     * Device addressed by a request. The server core already mapped neutral/unknown unit IDs, so an
+     * undefined unit ID simply means "the default device".
+     */
+    #deviceOf(unitId?: number): SlaveDevice | undefined {
+        return this.devices[unitId !== undefined && this.devices[unitId] ? unitId : this.defaultDeviceId];
+    }
+
+    /**
+     * Device a state belongs to. Without this every polled value would land in the buffers of the first
+     * device, so identical registers of different device IDs overwrote each other (issue #813).
+     */
+    #deviceOfState(id: string): SlaveDevice | undefined {
+        return this.#deviceOf(this.objects[id]?.native?.deviceId as number | undefined);
+    }
+
     write(id: string, state: Partial<ioBroker.State>): Promise<void> {
         if (!this.objects[id] || !this.objects[id].native) {
             this.adapter.log.error(`Can not set state ${id}: unknown object`);
@@ -92,11 +119,12 @@ export default class Slave {
 
         const t = typeof state.val;
         const type: RegisterType = this.objects[id].native.regType;
-        if (!this.device?.[type]) {
+        const device = this.#deviceOfState(id);
+        if (!device?.[type]) {
             this.adapter.log.error(`Invalid type ${type}`);
             return Promise.resolve();
         }
-        const regs = this.device[type];
+        const regs = device[type];
         regs.changed = true;
 
         if (type === 'disInputs' || type === 'coils') {
@@ -153,14 +181,21 @@ export default class Slave {
     }
 
     start(): void {
-        if (this.device && !this.delayStart && !this.modbusServer) {
-            // this.device.coils ||= {
-            //     addressHigh: 8,
-            // };
-            // this.device.disInputs ||= { addressHigh: 8 };
-            // this.device.inputRegs ||= { addressHigh: 1 };
-            // this.device.holdingRegs ||= { addressHigh: 1 };
+        if (this.deviceIds.length && !this.delayStart && !this.modbusServer) {
             const logWrapper = createLoggingWrapper(this.adapter.log, this.options.config.disableLogging);
+
+            // One register space per served device ID: the unit ID of a request selects the buffers,
+            // instead of every unit ID reading the data of the first device (issue #813)
+            const units: { [unitId: number]: ModbusUnitBuffers } = {};
+            for (const deviceId of this.deviceIds) {
+                const device = this.devices[deviceId];
+                units[deviceId] = {
+                    coils: Buffer.alloc((device.coils.addressHigh + 7) >> 3),
+                    discrete: Buffer.alloc((device.disInputs.addressHigh + 7) >> 3),
+                    input: Buffer.alloc(device.inputRegs.addressHigh * 2),
+                    holding: Buffer.alloc(device.holdingRegs.addressHigh * 2),
+                };
+            }
 
             if (!this.options.config.proxy && this.options.config.type === 'serial') {
                 if (!this.options.config.serial) {
@@ -176,12 +211,11 @@ export default class Slave {
                         stopBits: this.options.config.serial.stopBits || 1,
                         parity: this.options.config.serial.parity || 'none',
                     },
-                    deviceId: this.options.config.defaultDeviceId,
+                    deviceId: this.defaultDeviceId,
+                    deviceIds: this.deviceIds,
                     responseDelay: 100,
-                    coils: Buffer.alloc((this.device.coils.addressHigh + 7) >> 3),
-                    discrete: Buffer.alloc((this.device.disInputs.addressHigh + 7) >> 3),
-                    input: Buffer.alloc(this.device.inputRegs.addressHigh * 2),
-                    holding: Buffer.alloc(this.device.holdingRegs.addressHigh * 2),
+                    units,
+                    defaultUnitId: this.defaultDeviceId,
                 });
             } else {
                 // In proxy mode the built-in slave always serves over TCP on its own endpoint
@@ -199,15 +233,16 @@ export default class Slave {
                     // shared request queue, serializes all connections. With multiple masters this stacks into
                     // multi-second latencies (head-of-line blocking) and master timeouts. Omitting it lets the core
                     // use setImmediate, which yields cooperatively without an artificial per-request wall.
-                    coils: Buffer.alloc((this.device.coils.addressHigh + 7) >> 3),
-                    discrete: Buffer.alloc((this.device.disInputs.addressHigh + 7) >> 3),
-                    input: Buffer.alloc(this.device.inputRegs.addressHigh * 2),
-                    holding: Buffer.alloc(this.device.holdingRegs.addressHigh * 2),
+                    units,
+                    defaultUnitId: this.defaultDeviceId,
                 });
             }
 
-            this.modbusServer.on('readCoilsRequest', (start: number, quantity: number): void => {
-                const regs = this.device.coils;
+            this.modbusServer.on('readCoilsRequest', (start: number, quantity: number, unitId?: number): void => {
+                const regs = this.#deviceOf(unitId)?.coils;
+                if (!regs) {
+                    return;
+                }
                 if (
                     regs.changed ||
                     regs.lastEnd === undefined ||
@@ -217,7 +252,7 @@ export default class Slave {
                     regs.lastStart = start;
                     regs.lastEnd = start + quantity;
                     regs.changed = false;
-                    const data = this.modbusServer?.getCoils();
+                    const data = this.modbusServer?.getCoils(unitId);
                     if (!data) {
                         return;
                     }
@@ -245,9 +280,12 @@ export default class Slave {
                 }
             });
 
-            this.modbusServer.on('readCoilsRequest', (start: number, quantity: number): void => {
+            this.modbusServer.on('readCoilsRequest', (start: number, quantity: number, unitId?: number): void => {
                 if (this.options.config.notifyOnReadCoils) {
-                    const regs = this.device.coils;
+                    const regs = this.#deviceOf(unitId)?.coils;
+                    if (!regs) {
+                        return;
+                    }
                     for (let i = 0; i < quantity; i++) {
                         const a = start + i - regs.addressLow;
                         if (a >= 0 && regs.mapping[a]) {
@@ -257,278 +295,321 @@ export default class Slave {
                 }
             });
 
-            this.modbusServer.on('readDiscreteInputsRequest', (start: number, quantity: number): void => {
-                const regs = this.device.disInputs;
-                if (
-                    regs.changed ||
-                    regs.lastEnd === undefined ||
-                    regs.lastStart! > start ||
-                    regs.lastEnd < start + quantity
-                ) {
-                    regs.lastStart = start;
-                    regs.lastEnd = start + quantity;
-                    regs.changed = false;
-                    const data = this.modbusServer?.getDiscrete();
-                    if (!data) {
+            this.modbusServer.on(
+                'readDiscreteInputsRequest',
+                (start: number, quantity: number, unitId?: number): void => {
+                    const regs = this.#deviceOf(unitId)?.disInputs;
+                    if (!regs) {
                         return;
                     }
-                    // `start` is a discrete-input (bit) address, so the byte index is start >> 3, not start.
-                    // Write each requested input to its absolute bit position in the buffer.
-                    for (let i = 0; i < quantity; i++) {
-                        const input = start + i;
-                        if (input >= regs.addressHigh) {
-                            break;
+                    if (
+                        regs.changed ||
+                        regs.lastEnd === undefined ||
+                        regs.lastStart! > start ||
+                        regs.lastEnd < start + quantity
+                    ) {
+                        regs.lastStart = start;
+                        regs.lastEnd = start + quantity;
+                        regs.changed = false;
+                        const data = this.modbusServer?.getDiscrete(unitId);
+                        if (!data) {
+                            return;
                         }
-                        const byteIndex = input >> 3;
-                        if (byteIndex >= data.length) {
-                            break;
+                        // `start` is a discrete-input (bit) address, so the byte index is start >> 3, not start.
+                        // Write each requested input to its absolute bit position in the buffer.
+                        for (let i = 0; i < quantity; i++) {
+                            const input = start + i;
+                            if (input >= regs.addressHigh) {
+                                break;
+                            }
+                            const byteIndex = input >> 3;
+                            if (byteIndex >= data.length) {
+                                break;
+                            }
+                            const a = input - regs.addressLow;
+                            const mask = 1 << (input & 7);
+                            let byte = data.readUInt8(byteIndex);
+                            if (a >= 0 && regs.values[a]) {
+                                byte |= mask;
+                            } else {
+                                byte &= ~mask;
+                            }
+                            data.writeUInt8(byte, byteIndex);
                         }
-                        const a = input - regs.addressLow;
-                        const mask = 1 << (input & 7);
-                        let byte = data.readUInt8(byteIndex);
-                        if (a >= 0 && regs.values[a]) {
-                            byte |= mask;
-                        } else {
-                            byte &= ~mask;
-                        }
-                        data.writeUInt8(byte, byteIndex);
                     }
-                }
-                if (this.options.config.notifyOnReadDisInputs) {
-                    const regsN = this.device.disInputs;
-                    for (let i = 0; i < quantity; i++) {
-                        const a = start + i - regsN.addressLow;
-                        if (a >= 0 && regsN.mapping[a]) {
-                            this.emitReadNotify(regsN.mapping[a]);
+                    if (this.options.config.notifyOnReadDisInputs) {
+                        for (let i = 0; i < quantity; i++) {
+                            const a = start + i - regs.addressLow;
+                            if (a >= 0 && regs.mapping[a]) {
+                                this.emitReadNotify(regs.mapping[a]);
+                            }
                         }
                     }
-                }
-            });
+                },
+            );
 
             // let "function" here and not use =>
-            this.modbusServer.on('readInputRegistersRequest', (start: number, quantity: number): void => {
-                const regs = this.device.inputRegs;
-                if (
-                    regs.changed ||
-                    regs.lastEnd === undefined ||
-                    regs.lastStart! > start ||
-                    regs.lastEnd < start + quantity
-                ) {
-                    regs.lastStart = start;
-                    regs.lastEnd = start + quantity;
-                    regs.changed = false;
-                    const data = this.modbusServer?.getInput();
-                    if (!data) {
+            this.modbusServer.on(
+                'readInputRegistersRequest',
+                (start: number, quantity: number, unitId?: number): void => {
+                    const regs = this.#deviceOf(unitId)?.inputRegs;
+                    if (!regs) {
                         return;
                     }
-                    const end = start + quantity * 2;
-                    const low = regs.addressLow * 2;
-                    const high = regs.addressHigh * 2;
-                    for (let i = start; i < end; i++) {
-                        if (i >= data.length) {
-                            break;
+                    if (
+                        regs.changed ||
+                        regs.lastEnd === undefined ||
+                        regs.lastStart! > start ||
+                        regs.lastEnd < start + quantity
+                    ) {
+                        regs.lastStart = start;
+                        regs.lastEnd = start + quantity;
+                        regs.changed = false;
+                        const data = this.modbusServer?.getInput(unitId);
+                        if (!data) {
+                            return;
                         }
-                        if (i >= low && i < high) {
-                            data.writeUInt8(regs.values[i - low] as number, i);
-                        } else {
-                            data.writeUInt8(0, i);
+                        const end = start + quantity * 2;
+                        const low = regs.addressLow * 2;
+                        const high = regs.addressHigh * 2;
+                        for (let i = start; i < end; i++) {
+                            if (i >= data.length) {
+                                break;
+                            }
+                            if (i >= low && i < high) {
+                                data.writeUInt8(regs.values[i - low] as number, i);
+                            } else {
+                                data.writeUInt8(0, i);
+                            }
                         }
                     }
-                }
-                if (this.options.config.notifyOnReadInputRegs) {
-                    const wordStart = start >> 1;
-                    for (let i = 0; i < quantity; i++) {
-                        const a = wordStart + i - regs.addressLow;
-                        if (a >= 0 && regs.mapping[a]) {
-                            this.emitReadNotify(regs.mapping[a]);
+                    if (this.options.config.notifyOnReadInputRegs) {
+                        const wordStart = start >> 1;
+                        for (let i = 0; i < quantity; i++) {
+                            const a = wordStart + i - regs.addressLow;
+                            if (a >= 0 && regs.mapping[a]) {
+                                this.emitReadNotify(regs.mapping[a]);
+                            }
                         }
                     }
-                }
-            });
+                },
+            );
 
             // let "function" here and not use =>
-            this.modbusServer.on('readHoldingRegistersRequest', (start: number, quantity: number): void => {
-                const regs = this.device.holdingRegs;
-                if (
-                    regs.changed ||
-                    regs.lastEnd === undefined ||
-                    regs.lastStart! > start ||
-                    regs.lastEnd < start + quantity
-                ) {
-                    regs.lastStart = start;
-                    regs.lastEnd = start + quantity;
-                    regs.changed = false;
-                    const data = this.modbusServer?.getHolding();
-                    if (!data) {
+            this.modbusServer.on(
+                'readHoldingRegistersRequest',
+                (start: number, quantity: number, unitId?: number): void => {
+                    const regs = this.#deviceOf(unitId)?.holdingRegs;
+                    if (!regs) {
                         return;
                     }
-                    const end = start + quantity * 2;
-                    const low = regs.addressLow * 2;
-                    const high = regs.addressHigh * 2;
-                    for (let i = start; i < end; i++) {
-                        if (i >= data.length) {
-                            break;
+                    if (
+                        regs.changed ||
+                        regs.lastEnd === undefined ||
+                        regs.lastStart! > start ||
+                        regs.lastEnd < start + quantity
+                    ) {
+                        regs.lastStart = start;
+                        regs.lastEnd = start + quantity;
+                        regs.changed = false;
+                        const data = this.modbusServer?.getHolding(unitId);
+                        if (!data) {
+                            return;
                         }
-                        if (i >= low && i < high) {
-                            data.writeUInt8(regs.values[i - low] as number, i);
-                        } else {
-                            data.writeUInt8(0, i);
+                        const end = start + quantity * 2;
+                        const low = regs.addressLow * 2;
+                        const high = regs.addressHigh * 2;
+                        for (let i = start; i < end; i++) {
+                            if (i >= data.length) {
+                                break;
+                            }
+                            if (i >= low && i < high) {
+                                data.writeUInt8(regs.values[i - low] as number, i);
+                            } else {
+                                data.writeUInt8(0, i);
+                            }
                         }
                     }
-                }
-                if (this.options.config.notifyOnReadHoldingRegs) {
-                    const wordStart = start >> 1;
-                    for (let i = 0; i < quantity; i++) {
-                        const a = wordStart + i - regs.addressLow;
-                        if (a >= 0 && regs.mapping[a]) {
-                            this.emitReadNotify(regs.mapping[a]);
+                    if (this.options.config.notifyOnReadHoldingRegs) {
+                        const wordStart = start >> 1;
+                        for (let i = 0; i < quantity; i++) {
+                            const a = wordStart + i - regs.addressLow;
+                            if (a >= 0 && regs.mapping[a]) {
+                                this.emitReadNotify(regs.mapping[a]);
+                            }
                         }
                     }
-                }
-            });
+                },
+            );
 
-            this.modbusServer.on('postWriteSingleCoilRequest', (start: number, value: boolean): void => {
-                const regs = this.device.coils;
-                const a = start - regs.addressLow;
+            this.modbusServer.on(
+                'postWriteSingleCoilRequest',
+                (start: number, value: boolean, unitId?: number): void => {
+                    const regs = this.#deviceOf(unitId)?.coils;
+                    if (!regs) {
+                        return;
+                    }
+                    const a = start - regs.addressLow;
 
-                if (a >= 0 && regs.mapping[a]) {
-                    void this.adapter.setState(
-                        regs.mapping[a],
-                        value,
-                        this.writeAck,
-                        err =>
-                            // analyse if the state could be set (because of permissions)
-                            err && this.adapter.log.error(`Can not set state: ${err.message}`),
-                    );
-                    regs.values[a] = value;
-                }
-            });
+                    if (a >= 0 && regs.mapping[a]) {
+                        void this.adapter.setState(
+                            regs.mapping[a],
+                            value,
+                            this.writeAck,
+                            err =>
+                                // analyse if the state could be set (because of permissions)
+                                err && this.adapter.log.error(`Can not set state: ${err.message}`),
+                        );
+                        regs.values[a] = value;
+                    }
+                },
+            );
 
             const mPow2 = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
 
-            this.modbusServer.on('postWriteMultipleCoilsRequest', (start: number, length: number): void => {
-                const regs = this.device.coils;
-                let i = 0;
-                const data = this.modbusServer?.getCoils();
-                if (!data) {
-                    return;
-                }
-                if (start < regs.addressLow) {
-                    start = regs.addressLow;
-                }
-
-                while (i < length && i + start < regs.addressHigh) {
-                    const a = i + start - regs.addressLow;
-                    if (a >= 0 && regs.mapping[a]) {
-                        let value = data.readUInt8((i + start) >> 3);
-                        value = value & mPow2[(i + start) % 8];
-                        void this.adapter.setState(
-                            regs.mapping[a],
-                            !!value,
-                            this.writeAck,
-                            err =>
-                                // analyse if the state could be set (because of permissions)
-                                err && this.adapter.log.error(`Can not set state: ${err.message}`),
-                        );
-
-                        regs.values[a] = !!value;
-                    }
-                    i++;
-                }
-            });
-
-            this.modbusServer.on('postWriteSingleRegisterRequest', (start: number, value: number): void => {
-                const regs = this.device.holdingRegs;
-                start = start >> 1;
-                const a = start - regs.addressLow;
-
-                if (a >= 0 && regs.mapping[a]) {
-                    const native = this.options.objects[regs.mapping[a]]?.native;
-                    if (!native) {
+            this.modbusServer.on(
+                'postWriteMultipleCoilsRequest',
+                (start: number, length: number, _byteCount: number, unitId?: number): void => {
+                    const regs = this.#deviceOf(unitId)?.coils;
+                    if (!regs) {
                         return;
                     }
-                    const buf = Buffer.alloc(2);
-                    buf.writeUInt16BE(value);
-                    try {
-                        let val = extractValue(native.type, native.len, buf, 0);
-
-                        if (!stringRegisterTypes.includes(native.type)) {
-                            val = (val as number) * native.factor + native.offset;
-                            val = Math.round((val as number) * this.options.config.round) / this.options.config.round;
-                        }
-
-                        void this.adapter.setState(
-                            regs.mapping[a],
-                            val,
-                            this.writeAck,
-                            err =>
-                                // analyse if the state could be set (because of permissions)
-                                err && this.adapter.log.error(`Can not set state: ${err.message}`),
-                        );
-                    } catch (err) {
-                        this.adapter.log.error(`Can not set value: ${(err as Error).message}`);
+                    let i = 0;
+                    const data = this.modbusServer?.getCoils(unitId);
+                    if (!data) {
+                        return;
+                    }
+                    if (start < regs.addressLow) {
+                        start = regs.addressLow;
                     }
 
-                    // regs.values is byte-indexed (see write() and postWriteMultipleRegistersRequest),
-                    // so a register index `a` must be scaled by 2. Without the *2 an fc6 write to
-                    // register `a` corrupts the bytes of register floor(a/2) instead (e.g. a write to
-                    // the control register clobbered the middle bytes of a neighbouring int32).
-                    regs.values[a * 2] = buf[0];
-                    regs.values[a * 2 + 1] = buf[1];
-                }
-            });
+                    while (i < length && i + start < regs.addressHigh) {
+                        const a = i + start - regs.addressLow;
+                        if (a >= 0 && regs.mapping[a]) {
+                            let value = data.readUInt8((i + start) >> 3);
+                            value = value & mPow2[(i + start) % 8];
+                            void this.adapter.setState(
+                                regs.mapping[a],
+                                !!value,
+                                this.writeAck,
+                                err =>
+                                    // analyse if the state could be set (because of permissions)
+                                    err && this.adapter.log.error(`Can not set state: ${err.message}`),
+                            );
 
-            this.modbusServer.on('postWriteMultipleRegistersRequest', (start: number, length: number): void => {
-                const regs = this.device.holdingRegs;
-                const data = this.modbusServer?.getHolding();
-                let i = 0;
-                start = start >> 1;
-
-                if (start < regs.addressLow) {
-                    start = regs.addressLow;
-                }
-
-                while (data && i < length && i + start < regs.addressHigh) {
-                    const a = i + start - regs.addressLow;
-                    if (a >= 0 && regs.mapping[a]) {
-                        const obj = this.options.objects[regs.mapping[a]];
-                        if (!obj?.native) {
-                            continue;
+                            regs.values[a] = !!value;
                         }
-                        const native = obj.native;
+                        i++;
+                    }
+                },
+            );
 
+            this.modbusServer.on(
+                'postWriteSingleRegisterRequest',
+                (start: number, value: number, unitId?: number): void => {
+                    const regs = this.#deviceOf(unitId)?.holdingRegs;
+                    if (!regs) {
+                        return;
+                    }
+                    start = start >> 1;
+                    const a = start - regs.addressLow;
+
+                    if (a >= 0 && regs.mapping[a]) {
+                        const native = this.options.objects[regs.mapping[a]]?.native;
+                        if (!native) {
+                            return;
+                        }
+                        const buf = Buffer.alloc(2);
+                        buf.writeUInt16BE(value);
                         try {
-                            let val = extractValue(native.type, native.len, data, i + start);
+                            let val = extractValue(native.type, native.len, buf, 0);
+
                             if (!stringRegisterTypes.includes(native.type)) {
                                 val = (val as number) * native.factor + native.offset;
                                 val =
                                     Math.round((val as number) * this.options.config.round) / this.options.config.round;
                             }
+
                             void this.adapter.setState(
                                 regs.mapping[a],
                                 val,
                                 this.writeAck,
                                 err =>
-                                    // analyze if the state could be set (because of permissions)
+                                    // analyse if the state could be set (because of permissions)
                                     err && this.adapter.log.error(`Can not set state: ${err.message}`),
                             );
                         } catch (err) {
-                            this.adapter.log.error(`Can not set value: ${err.message}`);
+                            this.adapter.log.error(`Can not set value: ${(err as Error).message}`);
                         }
 
-                        // Source bytes live at the absolute register position i + start (same offset
-                        // extractValue reads above), not at the block start. Using start * 2 copied the
-                        // first register's bytes into every subsequent mapped register of a multi-register
-                        // fc16 write, so their read-back returned the first register's value.
-                        for (let k = 0; k < native.len * 2; k++) {
-                            regs.values[a * 2 + k] = data.readUInt8((i + start) * 2 + k);
-                        }
-                        i += native.len;
-                    } else {
-                        i++;
+                        // regs.values is byte-indexed (see write() and postWriteMultipleRegistersRequest),
+                        // so a register index `a` must be scaled by 2. Without the *2 an fc6 write to
+                        // register `a` corrupts the bytes of register floor(a/2) instead (e.g. a write to
+                        // the control register clobbered the middle bytes of a neighbouring int32).
+                        regs.values[a * 2] = buf[0];
+                        regs.values[a * 2 + 1] = buf[1];
                     }
-                }
-            });
+                },
+            );
+
+            this.modbusServer.on(
+                'postWriteMultipleRegistersRequest',
+                (start: number, length: number, _byteCount: number, unitId?: number): void => {
+                    const regs = this.#deviceOf(unitId)?.holdingRegs;
+                    if (!regs) {
+                        return;
+                    }
+                    const data = this.modbusServer?.getHolding(unitId);
+                    let i = 0;
+                    start = start >> 1;
+
+                    if (start < regs.addressLow) {
+                        start = regs.addressLow;
+                    }
+
+                    while (data && i < length && i + start < regs.addressHigh) {
+                        const a = i + start - regs.addressLow;
+                        if (a >= 0 && regs.mapping[a]) {
+                            const obj = this.options.objects[regs.mapping[a]];
+                            if (!obj?.native) {
+                                continue;
+                            }
+                            const native = obj.native;
+
+                            try {
+                                let val = extractValue(native.type, native.len, data, i + start);
+                                if (!stringRegisterTypes.includes(native.type)) {
+                                    val = (val as number) * native.factor + native.offset;
+                                    val =
+                                        Math.round((val as number) * this.options.config.round) /
+                                        this.options.config.round;
+                                }
+                                void this.adapter.setState(
+                                    regs.mapping[a],
+                                    val,
+                                    this.writeAck,
+                                    err =>
+                                        // analyze if the state could be set (because of permissions)
+                                        err && this.adapter.log.error(`Can not set state: ${err.message}`),
+                                );
+                            } catch (err) {
+                                this.adapter.log.error(`Can not set value: ${err.message}`);
+                            }
+
+                            // Source bytes live at the absolute register position i + start (same offset
+                            // extractValue reads above), not at the block start. Using start * 2 copied the
+                            // first register's bytes into every subsequent mapped register of a multi-register
+                            // fc16 write, so their read-back returned the first register's value.
+                            for (let k = 0; k < native.len * 2; k++) {
+                                regs.values[a * 2 + k] = data.readUInt8((i + start) * 2 + k);
+                            }
+                            i += native.len;
+                        } else {
+                            i++;
+                        }
+                    }
+                },
+            );
 
             this.modbusServer
                 .on('connection', async () => {
@@ -647,14 +728,17 @@ export default class Slave {
     }
 
     async initValues(): Promise<void> {
-        if (!this.device) {
+        if (!this.deviceIds.length) {
             return;
         }
         // read all states
         const states = await this.adapter.getStatesAsync('*');
-        this.#initValues(states, this.device.disInputs);
-        this.#initValues(states, this.device.coils);
-        this.#initValues(states, this.device.inputRegs);
-        this.#initValues(states, this.device.holdingRegs);
+        for (const deviceId of this.deviceIds) {
+            const device = this.devices[deviceId];
+            this.#initValues(states, device.disInputs);
+            this.#initValues(states, device.coils);
+            this.#initValues(states, device.inputRegs);
+            this.#initValues(states, device.holdingRegs);
+        }
     }
 }

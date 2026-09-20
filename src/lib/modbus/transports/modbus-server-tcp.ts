@@ -1,4 +1,4 @@
-import ModbusServerCore from '../modbus-server-core';
+import ModbusServerCore, { type ModbusServerCoreOptions } from '../modbus-server-core';
 import Put from '../../Put';
 import { createServer, type Socket, type Server } from 'node:net';
 
@@ -22,19 +22,14 @@ export default class ModbusServerTcp extends ModbusServerCore {
         hostname: string;
     };
 
-    constructor(options: {
-        tcp: {
-            port?: number;
-            hostname?: string;
-        };
-        logger: ioBroker.Logger;
-        timeout?: number;
-        responseDelay?: number;
-        coils?: Buffer;
-        holding?: Buffer;
-        input?: Buffer;
-        discrete?: Buffer;
-    }) {
+    constructor(
+        options: ModbusServerCoreOptions & {
+            tcp: {
+                port?: number;
+                hostname?: string;
+            };
+        },
+    ) {
         super(options);
         this.tcp = {
             port: options.tcp.port || 502,
@@ -116,19 +111,25 @@ export default class ModbusServerTcp extends ModbusServerCore {
 
         const current = this.fifo.shift()!;
 
-        this.onData(current.pdu, response => {
-            this.log.debug('sending tcp data');
-            const pkt = new Put()
-                .word16be(current.request.transId) // transaction id
-                .word16be(current.request.protocolVer) // protocol version
-                .word16be(response.length + 1) // pdu length
-                .word8(current.request.unitId) // unit id
-                .put(response) // the actual pdu
-                .buffer();
+        this.onData(
+            current.pdu,
+            response => {
+                this.log.debug('sending tcp data');
+                const pkt = new Put()
+                    .word16be(current.request.transId) // transaction id
+                    .word16be(current.request.protocolVer) // protocol version
+                    .word16be(response.length + 1) // pdu length
+                    .word8(current.request.unitId) // unit id
+                    .put(response) // the actual pdu
+                    .buffer();
 
-            current.socket.write(pkt);
-            this.setState('ready');
-        });
+                current.socket.write(pkt);
+                this.setState('ready');
+            },
+            // The unit ID selects the served device: with several device IDs every unit gets its own
+            // register space instead of all of them sharing the first device's buffers (issue #813)
+            current.request.unitId,
+        );
     };
 
     #initiateSocket = (socket: Socket): void => {
