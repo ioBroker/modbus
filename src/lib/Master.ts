@@ -1,6 +1,6 @@
 import type { DeviceMasterOption, MasterDevice, Options, RegisterInternal, RegisterType } from '../types';
-import { extractValue, writeValue, stringRegisterTypes } from './common';
-import type { ModbusReadResultBinary } from './modbus/modbus-client-core';
+import { extractValue, writeValue, stringRegisterTypes, formatError } from './common';
+import type { ModbusReadResultBinary, TrashedRequestInfo } from './modbus/modbus-client-core';
 import ModbusClientSerial from './modbus/transports/modbus-client-serial';
 import ModbusClientTcp from './modbus/transports/modbus-client-tcp';
 import ModbusClientUdp from './modbus/transports/modbus-client-udp';
@@ -249,17 +249,20 @@ export class Master {
             if (err.code === 'ECONNREFUSED') {
                 adapter.log.warn(`Connection refused ${err.address}:${err.port}`);
             } else {
-                adapter.log.warn(`On error: ${JSON.stringify(err)}`);
+                adapter.log.warn(`On error: ${formatError(err)}`);
             }
 
             this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
         });
 
-        this.modbusClient.on('trashCurrentRequest', err => {
+        this.modbusClient.on('trashCurrentRequest', (info?: TrashedRequestInfo) => {
             if (this.isStop) {
                 return;
             }
-            adapter.log.warn(`Error: ${JSON.stringify(err)}`);
+            // Name the dropped request: it is the one the device did not answer (issue #811)
+            adapter.log.warn(
+                `Request cancelled (${info?.reason || 'unknown reason'})${info?.request ? `: ${info.request}` : ''}, reconnecting`,
+            );
             this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
         });
     }
@@ -837,9 +840,7 @@ export class Master {
         if (err) {
             this.errorCount++;
 
-            this.adapter.log.warn(
-                `[DevID_${deviceId}] Poll error count: ${this.errorCount} code: ${JSON.stringify(err)}`,
-            );
+            this.adapter.log.warn(`[DevID_${deviceId}] Poll error count: ${this.errorCount}: ${formatError(err)}`);
             void this.adapter.setState('info.connection', false, true);
 
             if (this.errorCount > 12 * this.deviceIds.length) {
@@ -957,7 +958,7 @@ export class Master {
                 );
                 // show errors
                 for (const err of pollErrors) {
-                    this.adapter.log.warn(`[DevID_${device.coils.deviceId}] ${err.desc}: ${err.error}`);
+                    this.adapter.log.warn(`[DevID_${device.coils.deviceId}] ${err.desc}: ${formatError(err.error)}`);
                 }
             }
             const result = this.#pollResult(startTime, device.coils.deviceId, error?.error || null);
@@ -1077,7 +1078,11 @@ export class Master {
                 this.adapter.log.debug(`Write successfully [${obj.native.address}]: ${val}`);
             }
         } catch (err) {
-            this.adapter.log.warn(`Can not write value ${val}: ${err}`);
+            // Name the target of the failed write; `Cannot write value 80: Error: timeout` alone does
+            // not say which register, device or function code was involved (issue #811)
+            this.adapter.log.warn(
+                `Cannot write value ${val} to ${id} (unit ${obj.native.deviceId}, ${type} address ${obj.native.address}): ${formatError(err)}`,
+            );
             if (!this.isStop && !this.reconnectTimeout) {
                 this.#reconnect(true);
             }

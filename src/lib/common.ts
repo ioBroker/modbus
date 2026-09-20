@@ -30,6 +30,51 @@ export const variableLengthStringTypes: RegisterEntryType[] = [
     'rawhex',
 ];
 
+/**
+ * Readable one line form of the errors that travel through the Modbus stack.
+ *
+ * `JSON.stringify` was used for them, which prints `{}` for an `Error` instance and left the adapter
+ * log with messages like `Error: undefined` (issue #811). Handles `Error`s, the plain objects of the
+ * request callbacks (`message`/`exceptionCode`/`timeout`/`request`) and socket errors (`code`).
+ */
+export function formatError(err: unknown): string {
+    if (!err) {
+        return 'unknown error';
+    }
+    if (typeof err === 'string') {
+        return err;
+    }
+
+    const e = err as {
+        message?: string;
+        code?: string;
+        address?: string;
+        port?: number;
+        exceptionCode?: number;
+        timeout?: number;
+        request?: string;
+    };
+    const parts: string[] = [];
+
+    if (e.message) {
+        parts.push(e.message);
+    }
+    if (e.code && !e.message?.includes(e.code)) {
+        parts.push(e.code);
+    }
+    if (e.address) {
+        parts.push(`${e.address}${e.port ? `:${e.port}` : ''}`);
+    }
+    if (e.exceptionCode !== undefined && !e.message?.includes('exception')) {
+        parts.push(`exception 0x${e.exceptionCode.toString(16).padStart(2, '0')}`);
+    }
+    if (e.request && !e.message?.includes(e.request)) {
+        parts.push(e.request);
+    }
+
+    return parts.length ? parts.join(' - ') : JSON.stringify(err);
+}
+
 export function extractValue(type: RegisterEntryType, len: number, buffer: Buffer, offset: number): string | number {
     let buf: Buffer;
     let _len: number;

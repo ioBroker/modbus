@@ -13,6 +13,86 @@ const ExceptionMessage: { [error: number]: string } = {
     0x0b: 'GATEWAY TARGET DEVICE FAILED TO RESPOND',
 };
 
+/** Function code names used in log messages */
+const FUNCTION_NAMES: { [fc: number]: string } = {
+    1: 'read coils',
+    2: 'read discrete inputs',
+    3: 'read holding registers',
+    4: 'read input registers',
+    5: 'write single coil',
+    6: 'write single register',
+    15: 'write multiple coils',
+    16: 'write multiple registers',
+};
+
+/**
+ * One line description of a request for log messages, e.g.
+ * `FC16 write multiple registers, address 6609, quantity 1, unit 1`.
+ *
+ * Without it a timeout or a device exception only says THAT something failed, but not for which
+ * register, function code or device - the first question of every analysis (issue #811).
+ */
+export function describeRequest(request: { fc: number; unitId: number; pdu: Buffer }): string {
+    const name = FUNCTION_NAMES[request.fc];
+    const parts = [`FC${request.fc}${name ? ` ${name}` : ''}`];
+
+    if (request.pdu.length >= 5) {
+        parts.push(`address ${request.pdu.readUInt16BE(1)}`);
+        // FC5/FC6 carry the written value where the other function codes carry the quantity
+        parts.push(
+            request.fc === 5 || request.fc === 6
+                ? `value 0x${request.pdu.readUInt16BE(3).toString(16).padStart(4, '0')}`
+                : `quantity ${request.pdu.readUInt16BE(3)}`,
+        );
+    }
+    parts.push(`unit ${request.unitId}`);
+
+    return parts.join(', ');
+}
+
+/** Payload of the `trashCurrentRequest` event: why the pending request was dropped */
+export interface TrashedRequestInfo {
+    /** Reason, e.g. `timeout after 5000 ms` */
+    reason: string;
+    /** Request description, see {@link describeRequest} */
+    request: string;
+    fc: number;
+    unitId: number;
+    /** The expired request timeout in ms */
+    timeout?: number;
+}
+
+/**
+ * `Error` for a failed request that keeps the Modbus details.
+ *
+ * The request callbacks report an object with the exception and timeout information, but the promise
+ * of every function code used to reject with `new Error(err.message)` - so everything but `timeout`
+ * or the exception text was lost before it reached the adapter's log (issue #811).
+ */
+function requestError(err: {
+    message: string;
+    timeout?: number;
+    errorCode?: number;
+    exceptionCode?: number;
+    request?: string;
+}): Error {
+    const parts = [err.message === 'timeout' && err.timeout ? `timeout after ${err.timeout} ms` : err.message];
+
+    if (err.exceptionCode !== undefined) {
+        parts.push(`exception 0x${err.exceptionCode.toString(16).padStart(2, '0')}`);
+    }
+    if (err.request) {
+        parts.push(err.request);
+    }
+
+    return Object.assign(new Error(parts.join(' - ')), {
+        errorCode: err.errorCode,
+        exceptionCode: err.exceptionCode,
+        timeout: err.timeout,
+        request: err.request,
+    });
+}
+
 export type ModbusReadResultBinary = {
     unitId: number;
     fc: number;
@@ -58,6 +138,8 @@ type ModbusFcHandler = (
         timeout?: number;
         errorCode?: number;
         exceptionCode?: number;
+        /** Request description, see {@link describeRequest} */
+        request?: string;
     } | null,
     response?:
         | ModbusReadResultBinary
@@ -134,21 +216,31 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
     flush = (): void => {
         if (this.reqFifo.length) {
-            this.currentRequest = this.reqFifo.shift()!;
+            // Capture the request the timer belongs to: `this.currentRequest` may already be the next
+            // one by the time the timeout fires
+            const request = (this.currentRequest = this.reqFifo.shift()!);
 
             // Per-device timeout overrides the global one for this unit ID (issue #605)
-            const timeout = this.deviceTimeouts?.[this.currentRequest.unitId]?.timeout || this.timeout;
+            const timeout = this.deviceTimeouts?.[request.unitId]?.timeout || this.timeout;
 
-            this.currentRequest.timeout = setTimeout(() => {
-                this.currentRequest!.timeout = undefined;
-                this.currentRequest!.cb?.({ message: 'timeout', timeout });
-                this.emit('trashCurrentRequest');
-                this.log.error('Request timed out.');
+            request.timeout = setTimeout(() => {
+                const description = describeRequest(request);
+                request.timeout = undefined;
+                request.cb?.({ message: 'timeout', timeout, request: description });
+                const info: TrashedRequestInfo = {
+                    reason: `timeout after ${timeout} ms`,
+                    request: description,
+                    fc: request.fc,
+                    unitId: request.unitId,
+                    timeout,
+                };
+                this.emit('trashCurrentRequest', info);
+                this.log.error(`Request timed out after ${timeout} ms: ${description}`);
                 this.setState('error');
             }, timeout);
 
             this.setState('waiting');
-            this.emit('send', this.currentRequest.pdu, this.currentRequest.unitId);
+            this.emit('send', request.pdu, request.unitId);
         }
     };
 
@@ -183,6 +275,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
             errorCode,
             exceptionCode,
             message,
+            request: this.currentRequest ? describeRequest(this.currentRequest) : undefined,
         };
 
         // call the desired deferred
@@ -293,7 +386,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
             this.queueRequest(unitId, 1, pdu, (err, resp): void => {
                 if (err) {
-                    reject(new Error(err.message));
+                    reject(requestError(err));
                 } else {
                     resolve(resp as ModbusReadResultBinary);
                 }
@@ -351,7 +444,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
             this.queueRequest(unitId, 2, pdu, (err, resp) => {
                 if (err) {
-                    reject(new Error(err.message));
+                    reject(requestError(err));
                 } else {
                     resolve(resp as ModbusReadResultBinary);
                 }
@@ -407,7 +500,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
             this.queueRequest(unitId, 3, pdu, (err, resp) => {
                 if (err) {
-                    reject(new Error(err.message));
+                    reject(requestError(err));
                 } else {
                     resolve(resp as ModbusReadResultNumber);
                 }
@@ -463,7 +556,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
             this.queueRequest(unitId, 4, pdu, (err, resp) => {
                 if (err) {
-                    reject(new Error(err.message));
+                    reject(requestError(err));
                 } else {
                     resolve(resp as ModbusReadResultNumber);
                 }
@@ -504,7 +597,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
             this.queueRequest(unitId, 5, pdu.buffer(), (err, resp) => {
                 if (err) {
-                    reject(new Error(err.message));
+                    reject(requestError(err));
                 } else {
                     resolve(resp as ModbusWriteResultSingleCoil);
                 }
@@ -544,7 +637,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
             this.queueRequest(unitId, 6, pdu.buffer(), (err, resp) => {
                 if (err) {
-                    reject(new Error(err.message));
+                    reject(requestError(err));
                 } else {
                     resolve(resp as ModbusWriteResultSingleRegister);
                 }
@@ -608,7 +701,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
             this.queueRequest(unitId, 15, pdu.buffer(), (err, resp) => {
                 if (err) {
-                    reject(new Error(err.message));
+                    reject(requestError(err));
                 } else {
                     resolve(resp as ModbusWriteResultMultiple);
                 }
@@ -670,7 +763,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
 
             this.queueRequest(unitId, 16, pdu.buffer(), (err, resp) => {
                 if (err) {
-                    reject(new Error(err.message));
+                    reject(requestError(err));
                 } else {
                     resolve(resp as ModbusWriteResultMultiple);
                 }

@@ -125,7 +125,7 @@ export default class ModbusClientUDP extends ModbusClientCore {
     };
 
     #onError = (): void => {
-        this.log.error(`Client in error state.`);
+        this.log.error(`Client in error state (${this.udp.host}:${this.udp.port}), closing the socket.`);
         // Close the datagram socket; the 'close' event moves the FSM to 'closed'.
         this.#safeClose();
     };
