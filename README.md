@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.7.2 (2026-09-20)
 - (@GermanBluefox) Fixed the proxy/slave server ignoring the Modbus unit ID of a request (ioBroker.modbus issue #813): the built-in server served the register buffers of the FIRST device only, so with "Multi device IDs" every unit ID answered with the data of that device. Identical devices share their register map, so the polled values of all device IDs overwrote each other and a client write for unit 2 was applied to the state of device 1
 - (@GermanBluefox) The server now keeps one register space per device ID and routes every request by its unit ID. A single configured device still answers every unit ID, because many Modbus TCP clients send 0 or 255; with several devices 0 and 255 address the default device ID and an unknown unit ID is answered with exception 0x0B (gateway target device failed to respond) instead of foreign data
 - (@GermanBluefox) The RTU slave answers all configured device IDs, not only the default one
