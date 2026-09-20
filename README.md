@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.7.3 (2026-09-20)
 - (@GermanBluefox) A failed request now names itself in the log (ioBroker.modbus issue #811). A device that did not answer produced `Error: undefined` / `Request timed out.` / `Cannot write value 80: Error: timeout` - neither the register, nor the function code, nor the device ID, nor the expired timeout was visible anywhere
 - (@GermanBluefox) The timeout message is now `Request timed out after 5000 ms: FC16 write multiple registers, address 6609, quantity 1, unit 1`, and the `trashCurrentRequest` event carries that description instead of being emitted without a payload
 - (@GermanBluefox) Every function code rejected its promise with `new Error(err.message)`, which threw the exception code, the timeout and the request away. The rejection now reads `timeout after 5000 ms - FC6 write single register, address 6609, value 0x0050, unit 7` or `ILLEGAL DATA ADDRESS - exception 0x02 - FC3 read holding registers, ...`, so the adapter log shows what failed
