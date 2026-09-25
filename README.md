@@ -207,6 +207,10 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@GermanBluefox) The library reports the exclusive resources an instance really occupies to js-controller 8, which keeps a per-host registry of them (`system.host.<name>.usedResources`): the serial port of a master or slave in RTU mode, and the TCP port a slave or the proxy listens on - taken from the running server, so a configured port 0 is reported as the one that was really bound. A master over TCP, UDP or SSL reports nothing: that endpoint belongs to the device on the other side. Before a port is opened, the log names the instance that has already declared it. The adapter using the library has to set `"declareUsedResources": true` in the `common` part of its io-package.json; without it, and on an older js-controller, nothing is sent
+- (@GermanBluefox) `ModbusServerTcp` emits `listening` with the bound address once its server is up (`connection` stays what it was: one connected master)
+
 ### 7.7.3 (2026-09-20)
 - (@GermanBluefox) A failed request now names itself in the log (ioBroker.modbus issue #811). A device that did not answer produced `Error: undefined` / `Request timed out.` / `Cannot write value 80: Error: timeout` - neither the register, nor the function code, nor the device ID, nor the expired timeout was visible anywhere
 - (@GermanBluefox) The timeout message is now `Request timed out after 5000 ms: FC16 write multiple registers, address 6609, quantity 1, unit 1`, and the `trashCurrentRequest` event carries that description instead of being emitted without a payload

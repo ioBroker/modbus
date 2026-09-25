@@ -7,6 +7,7 @@ import ModbusClientUdp from './modbus/transports/modbus-client-udp';
 import ModbusClientTcpRtu from './modbus/transports/modbus-client-tcp-rtu';
 import ModbusClientTcpSsl from './modbus/transports/modbus-client-tcp-ssl';
 import { createLoggingWrapper } from './loggingUtils';
+import { freeUsedResource, registerUsedResource, reportResourceConflict, type UsedSerialPort } from './usedResources';
 
 export class Master {
     private readonly modbusClient;
@@ -28,6 +29,11 @@ export class Master {
     private readonly options: Options;
     private scaleFactors: { [deviceId: number]: { [address: number]: number | string } } = {};
     private lastValidValues: { [id: string]: number } = {};
+    /**
+     * The serial port this master holds while it is connected. Only serial occupies something on
+     * this host - over TCP, UDP or SSL the endpoint belongs to the device on the other side.
+     */
+    private usedSerialPort: UsedSerialPort | undefined;
 
     private readonly showDebug: boolean;
 
@@ -164,6 +170,12 @@ export class Master {
                 return;
             }
 
+            this.usedSerialPort = { port: serial.comName, baudRate: serial.baudRate || 9600 };
+            // Who else declared this port? Asked before it is opened - afterwards the operating
+            // system has decided it, and "Resource temporarily unavailable" does not name the
+            // instance that got there first
+            void reportResourceConflict(adapter, 'serialPort', this.usedSerialPort, 'the master');
+
             try {
                 const logWrapper = createLoggingWrapper(adapter.log, options.config.disableLogging);
                 this.modbusClient = new ModbusClientSerial({
@@ -204,6 +216,12 @@ export class Master {
                     void this.adapter.setState('info.connection', true, true);
                 }
 
+                if (this.usedSerialPort) {
+                    // Reported only now: a serial port that could not be opened is not held by this
+                    // instance, and the host must not list it as taken
+                    void registerUsedResource(this.adapter, 'serialPort', this.usedSerialPort);
+                }
+
                 if (this.nextPoll) {
                     adapter.clearTimeout(this.nextPoll);
                     this.nextPoll = null;
@@ -235,6 +253,12 @@ export class Master {
             });
 
         this.modbusClient.on('close', () => {
+            if (this.usedSerialPort) {
+                // The port is closed - unplugged, or given up before a reconnect - so it is free
+                // again until the `connect` above gets it back
+                void freeUsedResource(this.adapter, 'serialPort', { port: this.usedSerialPort.port });
+            }
+
             if (this.isStop) {
                 return;
             }
@@ -1172,6 +1196,13 @@ export class Master {
 
     close(): void {
         this.isStop = true;
+        if (this.usedSerialPort) {
+            // The host releases the entries of a stopped instance by itself; this is for the case
+            // where the master is thrown away while the adapter keeps running, e.g. in proxy mode
+            void freeUsedResource(this.adapter, 'serialPort', { port: this.usedSerialPort.port });
+            this.usedSerialPort = undefined;
+        }
+
         if (this.reconnectTimeout) {
             this.adapter.clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;

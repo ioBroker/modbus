@@ -50,6 +50,12 @@ Serial transport requires the consumer adapter to include `serialport` as its ow
 - `src/lib/Put.ts` — Buffer builder for constructing binary payloads
 - `src/lib/crc16modbus.ts` — CRC16 checksum for Modbus frames
 - `src/lib/loggingUtils.ts` — Wrapper that suppresses connection error logging when `disableLogging` is true
+- `src/lib/usedResources.ts` — Reports the occupied serial/TCP port to the registry of used resources
+  of js-controller 8. Wired into `Master.ts` (serial only — a TCP/UDP/SSL master occupies nothing
+  locally), `Slave.ts` (serial port, or the listening port incl. proxy mode) and their `close()`.
+  Registration happens on the `connect`/`connection`/`listening` event, never from the configuration,
+  and stays silent unless the adapter sets `common.declareUsedResources: true` **and** the controller
+  announces `CONTROLLER_USED_RESOURCES` — a host that does not know the calls never answers them.
 
 ## TypeScript Configuration
 

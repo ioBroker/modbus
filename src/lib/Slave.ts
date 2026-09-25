@@ -3,6 +3,13 @@ import type { ModbusUnitBuffers } from './modbus/modbus-server-core';
 import ModbusServerSerial from './modbus/transports/modbus-server-serial';
 import ModbusServerTcp from './modbus/transports/modbus-server-tcp';
 import { createLoggingWrapper } from './loggingUtils';
+import {
+    freeUsedResource,
+    listeningPort,
+    registerUsedResource,
+    reportResourceConflict,
+    type UsedSerialPort,
+} from './usedResources';
 import type { SlaveDevice, Options, DeviceSlaveOption, RegisterType } from '../types';
 
 // expected
@@ -202,6 +209,14 @@ export default class Slave {
                     throw new Error('Serial is required');
                 }
 
+                const serialResource: UsedSerialPort = {
+                    port: this.options.config.serial.comName,
+                    baudRate: this.options.config.serial.baudRate || 9600,
+                };
+                // Who else declared this port? Asked before it is opened - afterwards the operating
+                // system has decided it, and the error does not name the other instance
+                void reportResourceConflict(this.adapter, 'serialPort', serialResource, 'the slave');
+
                 this.modbusServer = new ModbusServerSerial({
                     logger: logWrapper,
                     serial: {
@@ -217,12 +232,30 @@ export default class Slave {
                     units,
                     defaultUnitId: this.defaultDeviceId,
                 });
+
+                // The serial server emits `connection` when the port is open, and only then is it
+                // really occupied by this instance
+                this.modbusServer.on('connection', () => {
+                    void registerUsedResource(this.adapter, 'serialPort', serialResource);
+                });
+                this.modbusServer.on('close', () => {
+                    void freeUsedResource(this.adapter, 'serialPort', { port: serialResource.port });
+                });
             } else {
                 // In proxy mode the built-in slave always serves over TCP on its own endpoint
                 const serverTcp = this.options.config.proxy ? this.options.config.proxyTcp : this.options.config.tcp;
                 if (!serverTcp) {
                     throw new Error('TCP options is required');
                 }
+                // Who else declared this port? Asked before it is opened, because an EADDRINUSE does
+                // not say which instance is already listening
+                void reportResourceConflict(
+                    this.adapter,
+                    'tcpPort',
+                    { port: serverTcp.port || 502, bind: serverTcp.ip || undefined },
+                    this.options.config.proxy ? 'the proxy' : 'the slave',
+                );
+
                 this.modbusServer = new ModbusServerTcp({
                     logger: logWrapper,
                     tcp: {
@@ -235,6 +268,14 @@ export default class Slave {
                     // use setImmediate, which yields cooperatively without an artificial per-request wall.
                     units,
                     defaultUnitId: this.defaultDeviceId,
+                });
+
+                // The address the socket really got, which is not necessarily the configured one
+                this.modbusServer.on('listening', (address: unknown) => {
+                    const data = listeningPort(address);
+                    if (data) {
+                        void registerUsedResource(this.adapter, 'tcpPort', data);
+                    }
                 });
             }
 
@@ -686,6 +727,11 @@ export default class Slave {
     }
 
     close(cb?: () => void): void {
+        // The host releases the entries of a stopped instance by itself; this is for the case where
+        // the slave is thrown away while the adapter keeps running, e.g. on a reconfiguration
+        void freeUsedResource(this.adapter, 'serialPort');
+        void freeUsedResource(this.adapter, 'tcpPort');
+
         if (this.modbusServer) {
             try {
                 this.modbusServer.close(cb);

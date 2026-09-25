@@ -56,6 +56,10 @@ export default class ModbusServerTcp extends ModbusServerCore {
 
         this.server.listen(this.tcp.port, this.tcp.hostname, (): void => {
             this.log.debug(`server is listening on port ${this.tcp.hostname}:${this.tcp.port}`);
+            // `connection` is one client, so the fact that the server itself is up needs an event of
+            // its own. The address is the one really bound, which is what the registry of used
+            // resources wants - a configured port 0 would have become a random one here.
+            this.emit('listening', this.server.address());
         });
 
         this.on('newState_ready', this.#flush);
