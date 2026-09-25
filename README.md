@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.8.0 (2026-09-25)
 - (@GermanBluefox) The library reports the exclusive resources an instance really occupies to js-controller 8, which keeps a per-host registry of them (`system.host.<name>.usedResources`): the serial port of a master or slave in RTU mode, and the TCP port a slave or the proxy listens on - taken from the running server, so a configured port 0 is reported as the one that was really bound. A master over TCP, UDP or SSL reports nothing: that endpoint belongs to the device on the other side. Before a port is opened, the log names the instance that has already declared it. The adapter using the library has to set `"declareUsedResources": true` in the `common` part of its io-package.json; without it, and on an older js-controller, nothing is sent
 - (@GermanBluefox) `ModbusServerTcp` emits `listening` with the bound address once its server is up (`connection` stays what it was: one connected master)
 
