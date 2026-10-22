@@ -207,6 +207,12 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@GermanBluefox) A response is taken only for the request it belongs to (issue #829): the TCP, SSL and UDP clients drop a frame with another transaction ID, the RTU clients one from another unit, and every client one with another function code. Before, a stale or duplicated answer - e.g. in the first poll cycle on a fresh connection - shifted every following response by one request, so the registers of another block were stored (e.g. a battery power of -4.1e27)
+- (@GermanBluefox) New parameter `ignoreTransactionId` (TCP, SSL, UDP master): accepts a response with any transaction ID, for devices that do not echo the one of the request. Off by default
+- (@GermanBluefox) A read must return exactly the requested number of registers or bits. A shorter response now discards the whole block with a warning, instead of storing the registers that fit (issues #502/#581/#829)
+- (@GermanBluefox) The debug check whether a scale factor is read in the same block as its value compared the alias address with the read address and always failed when aliases are used
+- (@GermanBluefox) A failed block read logs the error message instead of `{}`
 ### 7.8.0 (2026-09-25)
 - (@GermanBluefox) The library reports the exclusive resources an instance really occupies to js-controller 8, which keeps a per-host registry of them (`system.host.<name>.usedResources`): the serial port of a master or slave in RTU mode, and the TCP port a slave or the proxy listens on - taken from the running server, so a configured port 0 is reported as the one that was really bound. A master over TCP, UDP or SSL reports nothing: that endpoint belongs to the device on the other side. Before a port is opened, the log names the instance that has already declared it. The adapter using the library has to set `"declareUsedResources": true` in the `common` part of its io-package.json; without it, and on an older js-controller, nothing is sent
 - (@GermanBluefox) `ModbusServerTcp` emits `listening` with the bound address once its server is up (`connection` stays what it was: one connected master)

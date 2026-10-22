@@ -196,6 +196,8 @@ export interface Options {
         disableLogging?: boolean;
         /** Enable automatic sanitization of invalid register values */
         enableSanitization?: boolean;
+        /** TCP, SSL, UDP: accept a response with any transaction ID, for devices that do not echo it (issue #829) */
+        ignoreTransactionId?: boolean;
 
         // Only for slave — read-notify feature
         /** Expire time in seconds for counter-mode read-notify states; 0 = no expire */
@@ -331,6 +333,12 @@ export interface ModbusParameters {
     sslAllowSelfSigned?: boolean;
     /** Enable automatic sanitization of invalid register values (NaN, Infinity, extreme floats, out-of-range) */
     enableSanitization?: boolean;
+    /**
+     * TCP, SSL, UDP master: accept a response with any transaction ID. Only for devices that do not echo
+     * the transaction ID of the request - otherwise a stale or duplicated answer is taken for the next
+     * request and the registers of another block are stored (issue #829)
+     */
+    ignoreTransactionId?: boolean | 'true';
 
     // Slave mode — read-notify feature
     /** Expire time in seconds for counter-mode states; 0 or omitted = no expire */
@@ -453,6 +461,8 @@ export interface ModbusParametersTyped extends ModbusParameters {
     disableLogging: boolean;
     /** Enable automatic sanitization of invalid register values */
     enableSanitization?: boolean;
+    /** TCP, SSL, UDP master: accept a response with any transaction ID, for devices that do not echo it */
+    ignoreTransactionId?: boolean | 'true';
 
     // Slave mode — read-notify feature
     notifyOnReadExpire?: number | string;

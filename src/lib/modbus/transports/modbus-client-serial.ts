@@ -122,10 +122,7 @@ export default class ModbusClientSerial extends ModbusClientCore {
 
             if (!crc16modbus(pdu)) {
                 /* PDU is valid if CRC across whole PDU equals 0, else ignore and do nothing */
-                if (this.unitId !== undefined && pdu[0] !== this.unitId) {
-                    // answer for a wrong device
-                    this.log.debug(`received answer for wrong ID ${this.buffer[0]}, expected ${this.unitId}`);
-                }
+                // The client core drops an answer from another unit than the pending request was sent to
                 // emit data event and let the
                 // listener handle the pdu
                 this.emit('data', pdu.slice(1, pdu.length - 2), pdu[0]);

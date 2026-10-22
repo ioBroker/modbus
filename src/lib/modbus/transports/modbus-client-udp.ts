@@ -17,9 +17,11 @@ import ModbusClientCore from '../modbus-client-core';
 export default class ModbusClientUDP extends ModbusClientCore {
     private reqId = 0;
     private currentRequestId = 0;
+    // The transaction ID identifies the answer, some devices do not echo the unit ID
+    protected override checkUnitId = false;
+    private readonly ignoreTransactionId: boolean;
     private closedOnPurpose = false;
     #reconnect = false;
-    private trashRequestId: number | undefined;
     private socket: Socket | null = null;
     private udp: {
         host: string;
@@ -39,11 +41,14 @@ export default class ModbusClientUDP extends ModbusClientCore {
             reconnectTimeout?: number;
         };
         unitId?: number;
+        /** Accept a response with any transaction ID, for devices that do not echo it (issue #829) */
+        ignoreTransactionId?: boolean;
         logger: ioBroker.Logger;
         timeout?: number;
         deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
     }) {
         super(options);
+        this.ignoreTransactionId = !!options.ignoreTransactionId;
 
         this.setState('init');
         this.udp = options.udp as {
@@ -63,7 +68,6 @@ export default class ModbusClientUDP extends ModbusClientCore {
 
         this.on('send', this.#onSend);
         this.on('newState_error', this.#onError);
-        this.on('trashCurrentRequest', this.#onTrashCurrentRequest);
     }
 
     #onSocketConnect = (): void => {
@@ -116,8 +120,12 @@ export default class ModbusClientUDP extends ModbusClientCore {
 
         const pdu = msg.subarray(7, 7 + len - 1);
 
-        if (id === this.trashRequestId) {
-            this.log.debug('current mbap contains trashed request id.');
+        if (id !== this.currentRequestId && !this.ignoreTransactionId) {
+            // Late answer to a timed out request, or a duplicated datagram (issue #829)
+            this.log.warn(
+                `Dropped a response with transaction ID ${id}, expected ${this.currentRequestId}. ` +
+                    'If every response is dropped, the device does not echo the transaction ID: enable "ignoreTransactionId"',
+            );
         } else {
             // emit data event and let the listener handle the pdu
             this.emit('data', pdu, unitId);
@@ -151,10 +159,6 @@ export default class ModbusClientUDP extends ModbusClientCore {
         });
     };
 
-    #onTrashCurrentRequest = (): void => {
-        this.trashRequestId = this.currentRequestId;
-    };
-
     #safeClose(): void {
         try {
             this.socket?.close();
@@ -167,7 +171,7 @@ export default class ModbusClientUDP extends ModbusClientCore {
         this.setState('connect');
 
         // Start every (re)connection from a clean state.
-        this.trashRequestId = undefined;
+        this.currentRequestId = -1;
         this.closedOnPurpose = false;
 
         if (!this.socket) {

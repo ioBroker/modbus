@@ -75,6 +75,7 @@ function requestError(err: {
     errorCode?: number;
     exceptionCode?: number;
     request?: string;
+    incomplete?: boolean;
 }): Error {
     const parts = [err.message === 'timeout' && err.timeout ? `timeout after ${err.timeout} ms` : err.message];
 
@@ -90,6 +91,7 @@ function requestError(err: {
         exceptionCode: err.exceptionCode,
         timeout: err.timeout,
         request: err.request,
+        incomplete: err.incomplete,
     });
 }
 
@@ -140,6 +142,8 @@ type ModbusFcHandler = (
         exceptionCode?: number;
         /** Request description, see {@link describeRequest} */
         request?: string;
+        /** The device returned less data than requested */
+        incomplete?: boolean;
     } | null,
     response?:
         | ModbusReadResultBinary
@@ -170,6 +174,11 @@ export default abstract class ModbusClientCore extends EventEmitter {
     /** Optional per-device settings, keyed by unitId. `timeout` overrides `timeout` for that device (issue #605) */
     private readonly deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
     private currentState: ModbusFcState = 'init';
+    /**
+     * Drop responses from another unit. The MBAP transports (TCP, SSL, UDP) match the transaction ID
+     * instead, as some TCP devices do not echo the unit ID.
+     */
+    protected checkUnitId = true;
 
     protected constructor(options: {
         logger: ioBroker.Logger;
@@ -226,6 +235,10 @@ export default abstract class ModbusClientCore extends EventEmitter {
             request.timeout = setTimeout(() => {
                 const description = describeRequest(request);
                 request.timeout = undefined;
+                // A response that arrives after the timeout must not be taken for the next request
+                if (this.currentRequest === request) {
+                    this.currentRequest = null;
+                }
                 request.cb?.({ message: 'timeout', timeout, request: description });
                 const info: TrashedRequestInfo = {
                     reason: `timeout after ${timeout} ms`,
@@ -257,7 +270,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
         this.reqFifo = [];
     }
 
-    handleErrorPDU(pdu: Buffer): boolean {
+    handleErrorPDU(pdu: Buffer, request: ModbusRequest): boolean {
         const errorCode = pdu.readUInt8(0);
 
         // if error code is smaller than 0x80
@@ -275,52 +288,136 @@ export default abstract class ModbusClientCore extends EventEmitter {
             errorCode,
             exceptionCode,
             message,
-            request: this.currentRequest ? describeRequest(this.currentRequest) : undefined,
+            request: describeRequest(request),
         };
 
         // call the desired deferred
-        this.currentRequest?.cb(err);
+        request.cb(err);
 
         return true;
+    }
+
+    /**
+     * Why a response cannot be the answer to the pending request, or `null` if it can.
+     *
+     * Such a response is dropped and the request keeps waiting for its own answer (or its timeout).
+     * Taking it would decode the registers of another block as this one - e.g. a stale answer on a
+     * fresh connection shifts every response of the cycle by one request (issue #829).
+     * The transaction ID is checked by the MBAP transports themselves (TCP, SSL, UDP).
+     */
+    #foreignResponse(request: ModbusRequest, pdu: Buffer, unitId: number): string | null {
+        if (!pdu.length) {
+            return 'empty PDU';
+        }
+        const fc = pdu.readUInt8(0) & 0x7f;
+        if (fc !== request.fc) {
+            return `function code ${fc} instead of ${request.fc}`;
+        }
+        if (this.checkUnitId && unitId !== request.unitId) {
+            return `unit ${unitId} instead of ${request.unitId}`;
+        }
+        return null;
+    }
+
+    /**
+     * Why the answer to the pending request is unusable, or `null` if it is fine.
+     *
+     * The request fails with this reason: a read must return exactly the requested quantity, a write
+     * must confirm the requested address. A device that answers a read with fewer registers than
+     * requested does not implement every address of the block (issues #502/#581) - decoding the part
+     * that fits could store garbage, so the whole block is discarded.
+     */
+    #invalidResponse(request: ModbusRequest, pdu: Buffer): { message: string; incomplete?: boolean } | null {
+        if (pdu.readUInt8(0) & 0x80) {
+            // exception response, handled by handleErrorPDU
+            return pdu.length < 2 ? { message: 'exception response without exception code' } : null;
+        }
+        const address = request.pdu.readUInt16BE(1);
+        const quantity = request.pdu.readUInt16BE(3);
+
+        if (request.fc >= 1 && request.fc <= 4) {
+            const isBinary = request.fc <= 2;
+            const expected = isBinary ? Math.ceil(quantity / 8) : quantity * 2;
+            if (pdu.length < 2) {
+                return { message: 'response without byte count' };
+            }
+            const byteCount = pdu.readUInt8(1);
+            if (byteCount + 2 > pdu.length) {
+                return {
+                    message: `response length is invalid: received ${pdu.length} bytes, expected ${byteCount + 2} bytes`,
+                };
+            }
+            if (byteCount !== expected) {
+                return {
+                    message: isBinary
+                        ? `device returned ${byteCount} of ${expected} requested bytes`
+                        : `device returned ${byteCount >> 1} of ${quantity} requested registers`,
+                    incomplete: byteCount < expected,
+                };
+            }
+            return null;
+        }
+
+        // FC5, FC6, FC15 and FC16 echo the address (and value or quantity)
+        if (pdu.length < 5) {
+            return { message: `response length is invalid: received ${pdu.length} bytes, expected 5 bytes` };
+        }
+        if (pdu.readUInt16BE(1) !== address) {
+            return { message: `device confirmed address ${pdu.readUInt16BE(1)} instead of ${address}` };
+        }
+        return null;
     }
 
     /**
      *  Handle the incoming data, cut out the packet and send the pdu to the listener
      */
     onData = (pdu: Buffer, unitId: number): void => {
-        if (!this.currentRequest) {
-            this.log.debug('No current request.');
+        const request = this.currentRequest;
+        if (!request) {
+            this.log.debug(`Dropped a response without a pending request (unit ${unitId}, ${pdu.length} bytes)`);
             return;
         }
 
-        if (this.currentRequest.timeout) {
-            clearTimeout(this.currentRequest.timeout);
-            this.currentRequest.timeout = undefined;
+        const foreign = this.#foreignResponse(request, pdu, unitId);
+        if (foreign) {
+            this.log.warn(
+                `Dropped a response that does not belong to the pending request (${foreign}): ${describeRequest(request)}`,
+            );
+            return;
         }
 
-        try {
-            // check pdu for error
-            if (this.handleErrorPDU(pdu)) {
-                this.log.debug('Received pdu describes an error.');
-                this.currentRequest = null;
-                this.setState('ready');
-                return;
-            }
-        } catch {
-            // ignore
+        if (request.timeout) {
+            clearTimeout(request.timeout);
+            request.timeout = undefined;
+        }
+        // The request is answered now: nothing that arrives later may be taken as its response
+        this.currentRequest = null;
+
+        const invalid = this.#invalidResponse(request, pdu);
+        if (invalid) {
+            request.cb({ ...invalid, request: describeRequest(request) });
+            this.setState('ready');
+            return;
+        }
+
+        // check pdu for error
+        if (this.handleErrorPDU(pdu, request)) {
+            this.log.debug('Received pdu describes an error.');
+            this.setState('ready');
+            return;
         }
 
         // handle pdu
-        const handler = this.responseHandler[this.currentRequest!.fc];
+        const handler = this.responseHandler[request.fc];
         if (!handler) {
-            this.log.warn(`Found no handler for fc ${this.currentRequest!.fc}`);
-            throw new Error(`No handler implemented for fc ${this.currentRequest!.fc}`);
+            this.log.warn(`Found no handler for fc ${request.fc}`);
+            throw new Error(`No handler implemented for fc ${request.fc}`);
         }
 
         try {
-            handler(unitId, pdu, this.currentRequest!.cb);
+            handler(unitId, pdu, request.cb);
         } catch (err) {
-            this.log.warn(`Error in handler for FC${this.currentRequest!.fc}: ${err}`);
+            this.log.warn(`Error in handler for FC${request.fc}: ${err}`);
         }
 
         this.setState('ready');

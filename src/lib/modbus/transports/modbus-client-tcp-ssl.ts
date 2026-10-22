@@ -5,10 +5,12 @@ import Put from '../../Put';
 export default class ModbusClientTcpSsl extends ModbusClientCore {
     private reqId = 0;
     private currentRequestId = 0;
+    // The transaction ID identifies the answer, some devices do not echo the unit ID
+    protected override checkUnitId = false;
+    private readonly ignoreTransactionId: boolean;
     private closedOnPurpose = false;
     #reconnect = false;
     private buffer = Buffer.alloc(0);
-    private trashRequestId: number | undefined;
     private socket: TLSSocket | null = null;
     private tcp: {
         host: string;
@@ -40,11 +42,14 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
             ca?: string;
         };
         unitId?: number;
+        /** Accept a response with any transaction ID, for devices that do not echo it (issue #829) */
+        ignoreTransactionId?: boolean;
         logger: ioBroker.Logger;
         timeout?: number;
         deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
     }) {
         super(options);
+        this.ignoreTransactionId = !!options.ignoreTransactionId;
         this.setState('init');
         this.tcp = options.tcp as {
             host: string;
@@ -58,7 +63,6 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
 
         this.on('send', this.#onSend);
         this.on('newState_error', this.#onError);
-        this.on('trashCurrentRequest', this.#onTrashCurrentRequest);
     }
 
     #onSocketConnect = (): void => {
@@ -126,8 +130,13 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
 
             const pdu = this.buffer.slice(7, 7 + len - 1);
 
-            if (id === this.trashRequestId) {
-                this.log.debug('current mbap contains trashed request id.');
+            if (id !== this.currentRequestId && !this.ignoreTransactionId) {
+                // Answer to another request, e.g. a stale one on a fresh connection or a late answer
+                // to a timed out request. Taking it would shift every following response (issue #829)
+                this.log.warn(
+                    `Dropped a response with transaction ID ${id}, expected ${this.currentRequestId}. ` +
+                        'If every response is dropped, the device does not echo the transaction ID: enable "ignoreTransactionId"',
+                );
             } else {
                 // emit data event and let the
                 // listener handle the pdu
@@ -159,17 +168,13 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
         this.socket?.write(pkt);
     };
 
-    #onTrashCurrentRequest = (): void => {
-        this.trashRequestId = this.currentRequestId;
-    };
-
     connect(): void {
         this.setState('connect');
 
         // Start every (re)connection from a clean state: no leftover bytes, no
-        // blacklisted transaction id, and open again after an on-purpose close.
+        // expected transaction id until the first request, and open again after an on-purpose close.
         this.buffer = Buffer.alloc(0);
-        this.trashRequestId = undefined;
+        this.currentRequestId = -1;
         this.closedOnPurpose = false;
 
         if (!this.socket) {

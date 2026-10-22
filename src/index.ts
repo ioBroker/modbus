@@ -58,6 +58,7 @@ const defaultParams = {
     writeInterval: 0,
     readInterval: 0,
     disableLogging: false,
+    ignoreTransactionId: false,
     sslEnabled: false,
     sslCertPath: '',
     sslKeyPath: '',
@@ -771,6 +772,8 @@ export default class ModbusAdapter extends Adapter {
 
         options.config.disableLogging = params.disableLogging;
         options.config.enableSanitization = !!params.enableSanitization;
+        options.config.ignoreTransactionId =
+            params.ignoreTransactionId === true || params.ignoreTransactionId === 'true';
 
         if (options.config.slave) {
             options.config.notifyOnReadExpire = parseInt(params.notifyOnReadExpire as string, 10) || 0;

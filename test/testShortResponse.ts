@@ -8,11 +8,15 @@
  *   "The value of 'offset' is out of range. It must be >= 0 and <= 2. Received 96"
  * once per register (logged as "Can not set value: ...").
  *
+ * Issue #829 showed that decoding the part that fits is not safe either: a response for another
+ * (shorter) block was taken for this one and its registers were stored as Battery Power/Battery %.
+ * So a short response now discards the whole block.
+ *
  * This drives the REAL `Master` (over the real ModbusClientTCP transport) against a tiny fake
  * Modbus-TCP server that always answers FC4 with just 2 registers, and asserts that:
- *   - the registers that DO fit the response are still stored,
- *   - registers beyond the returned data are skipped (not stored, no crash),
- *   - exactly one clear warning is logged, and no "offset out of range" / "Can not set value" error.
+ *   - no register of the block is stored, not even the ones that would fit the response,
+ *   - one clear warning names the block and how to fix the configuration,
+ *   - no "offset out of range" / "Can not set value" error, and no reconnect.
  *
  * Assertions use node:assert only (no chai). No js-controller / real device involved.
  */
@@ -199,7 +203,7 @@ describe('Master short/truncated device response (issue #502)', function () {
         }
     });
 
-    it('warns and skips registers beyond a short response instead of throwing "offset out of range"', async () => {
+    it('warns and discards the whole block of a short response', async () => {
         const started = await startShortServer();
         server = started.server;
 
@@ -212,26 +216,20 @@ describe('Master short/truncated device response (issue #502)', function () {
 
         const seen = fake.setStateCalls.filter(c => c.id.startsWith('inputRegisters.')).map(c => `${c.id}=${c.val}`);
 
-        // The two registers that fit the (short) response are still stored.
-        assert.ok(
-            fake.setStateCalls.some(c => c.id === 'inputRegisters.30001' && c.val === 10),
-            `expected inputRegisters.30001=10, saw ${JSON.stringify(seen)}`,
-        );
-        assert.ok(
-            fake.setStateCalls.some(c => c.id === 'inputRegisters.30002' && c.val === 20),
-            `expected inputRegisters.30002=20, saw ${JSON.stringify(seen)}`,
-        );
+        // Not even the registers that would fit the (short) response are stored.
+        assert.deepStrictEqual(seen, [], 'no register of a short response may be stored');
 
-        // The register that lies beyond the returned data is skipped — not stored, and no crash.
+        // One informative warning that names the block and the fix
         assert.ok(
-            !fake.setStateCalls.some(c => c.id === 'inputRegisters.30049'),
-            'register beyond the short response must be skipped',
-        );
-
-        // Exactly the informative short-response warning, and NO cryptic buffer error.
-        assert.ok(
-            fake.warnings.some(w => /returned only \d+ of \d+ requested registers/.test(w)),
+            fake.warnings.some(w =>
+                /Block 0-48: device returned 2 of 49 requested registers.*The block is discarded/.test(w),
+            ),
             `expected a short-response warning, got: ${JSON.stringify(fake.warnings)}`,
+        );
+        // The device answered, so the connection stays
+        assert.ok(
+            !fake.warnings.some(w => /reconnecting/.test(w)),
+            `a short response must not trigger a reconnect, got: ${JSON.stringify(fake.warnings)}`,
         );
         assert.ok(
             !fake.errors.some(e => /Can not set value/.test(e) || /out of range/.test(e)),

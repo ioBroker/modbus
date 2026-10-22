@@ -75,6 +75,7 @@ export class Master {
                     timeout: options.config.timeout,
                     deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
+                    ignoreTransactionId: options.config.ignoreTransactionId,
                 });
             } catch (e) {
                 adapter.log.error(`Cannot connect to "${tcp.ip}:${tcp.port || 502}": ${e}`);
@@ -97,6 +98,7 @@ export class Master {
                     timeout: options.config.timeout,
                     deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
+                    ignoreTransactionId: options.config.ignoreTransactionId,
                 });
             } catch (e) {
                 adapter.log.error(`Cannot connect to "${tcp.ip}:${tcp.port || 502}" (UDP): ${e}`);
@@ -137,6 +139,7 @@ export class Master {
                     timeout: options.config.timeout,
                     deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
+                    ignoreTransactionId: options.config.ignoreTransactionId,
                 });
             } catch (e) {
                 adapter.log.error(`Cannot connect to SSL "${tcp.ip}:${tcp.port || 502}": ${e}`);
@@ -301,6 +304,23 @@ export class Master {
         return !!this.reconnectTimeout || !this.connected || this.isStop;
     }
 
+    /** Warning for a block that could not be read. An incomplete response gets a hint how to fix the configuration */
+    #blockErrorText(
+        deviceId: number,
+        regType: string,
+        regBlock: { start: number; count: number },
+        err: unknown,
+    ): string {
+        const text = `[DevID_${deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ${formatError(err)}`;
+        if ((err as { incomplete?: boolean } | null)?.incomplete) {
+            return (
+                `${text}. The block is discarded. Some addresses in this block may not exist on the device - reduce ` +
+                `"Max block size" or set "Max address gap to combine" to 0 (issues #502/#581).`
+            );
+        }
+        return text;
+    }
+
     #waitAsync(ms: number | undefined): Promise<void> {
         if (!ms) {
             return Promise.resolve();
@@ -386,8 +406,7 @@ export class Master {
                     response = await this.modbusClient.readCoils(regs.deviceId, regBlock.start, regBlock.count);
                 }
             } catch (err) {
-                const errorMsg = `[DevID_${regs.deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ${JSON.stringify(err)}`;
-                this.adapter.log.warn(errorMsg);
+                this.adapter.log.warn(this.#blockErrorText(regs.deviceId, regType, regBlock, err));
                 // Only abort the whole cycle when the connection itself is gone. A plain Modbus
                 // exception response (illegal address, illegal function, device busy) leaves the
                 // socket intact, so the remaining blocks of this register type must still be read
@@ -516,31 +535,19 @@ export class Master {
                 if (this.showDebug) {
                     this.adapter.log.debug(`[DevID_${regs.deviceId}/${regType}] Poll address ${regBlock.start} DONE`);
                 }
-                if (response.payload?.length) {
-                    // Guard against a short/truncated device response: some devices (or noisy RS485
-                    // links) answer with fewer registers than were requested, or do not implement
-                    // every address in a combined block. Reading past the returned buffer would throw
-                    // "The value of 'offset' is out of range" once per affected register (issue #502).
-                    const expectedBytes = regBlock.count * 2;
-                    if (response.payload.length < expectedBytes) {
-                        this.adapter.log.warn(
-                            `[DevID_${regs.deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ` +
-                                `device returned only ${response.payload.length >> 1} of ${regBlock.count} requested registers. ` +
-                                `Some addresses in this block may not exist on the device — reduce "Max block size" or set ` +
-                                `"Max address gap to combine" to 0 (issues #502/#581). Registers beyond the returned data are skipped.`,
-                        );
-                    }
-
+                // The client rejects a response with fewer registers than requested (issues #502/#829).
+                // Keep the guard for safety: decoding the part that fits could store another block's data.
+                if (response.payload && response.payload.length < regBlock.count * 2) {
+                    this.adapter.log.warn(
+                        this.#blockErrorText(regs.deviceId, regType, regBlock, {
+                            message: `device returned ${response.payload.length >> 1} of ${regBlock.count} requested registers`,
+                            incomplete: true,
+                        }),
+                    );
+                } else if (response.payload?.length) {
                     // first process all the scale factor values inside the block
                     for (let n = regBlock.startIndex; n < regBlock.endIndex; n++) {
                         if (!regs.config[n].poll && regType === 'holdingRegs') {
-                            continue;
-                        }
-                        // Skip registers that lie beyond a short response (see guard above, issue #502)
-                        if (
-                            (regs.config[n].address - regBlock.start + regs.config[n].len) * 2 >
-                            response.payload.length
-                        ) {
                             continue;
                         }
                         if (regs.config[n].isScale) {
@@ -607,13 +614,6 @@ export class Master {
                         if (!regs.config[n].poll && regType === 'holdingRegs') {
                             continue;
                         }
-                        // Skip registers that lie beyond a short response (see guard above, issue #502)
-                        if (
-                            (regs.config[n].address - regBlock.start + regs.config[n].len) * 2 >
-                            response.payload.length
-                        ) {
-                            continue;
-                        }
                         const id = regs.config[n].id;
                         try {
                             let val: string | number | null = extractValue(
@@ -641,29 +641,33 @@ export class Master {
                                                 const scaleAddress = parseInt(num[0], 10);
 
                                                 if (scaleAddress !== null && !isNaN(scaleAddress)) {
-                                                    // it seems that the current formula uses a scaleFactor, therefore check the validity
-                                                    if (this.showDebug) {
-                                                        this.adapter.log.debug(
-                                                            `[${prefixAddr}] Scale factor address is = ${scaleAddress}`,
-                                                        );
-                                                        this.adapter.log.debug(
-                                                            `[${prefixAddr}] Scale factor address is inside current read range = ${scaleAddress > regBlock.start && scaleAddress < regBlock.start + regBlock.count}`,
-                                                        );
+                                                    // it seems that the current formula uses a scaleFactor, therefore check the validity.
+                                                    // `sf[]` is keyed by `_address`, which differs from the read address
+                                                    // when aliases are used, so look the register up in this block (issue #829)
+                                                    let inBlock = false;
+                                                    for (let i = regBlock.startIndex; i < regBlock.endIndex; i++) {
+                                                        if (regs.config[i]._address === scaleAddress) {
+                                                            inBlock = true;
+                                                            break;
+                                                        }
                                                     }
+                                                    this.adapter.log.debug(
+                                                        `[${prefixAddr}] Scale factor address is = ${scaleAddress}`,
+                                                    );
+                                                    this.adapter.log.debug(
+                                                        `[${prefixAddr}] Scale factor address is inside current read range = ${inBlock}`,
+                                                    );
                                                     // check if the scaleFactor address is in the current read block or outside this block
-                                                    if (
-                                                        scaleAddress < regBlock.start ||
-                                                        scaleAddress > regBlock.start + regBlock.count
-                                                    ) {
+                                                    if (!inBlock) {
                                                         // the scaleFactor address is not in the current read block. So it cannot be ensured that the values are in sync / valid
                                                         this.adapter.log.warn(
-                                                            `[DevID_${device.coils.deviceId}/${regType}/${regs.config[n]._address}] The current range for reading the values was from address ${regBlock.start} up to address ${regBlock.start + regBlock.count}!`,
+                                                            `[DevID_${device.coils.deviceId}/${regType}/${regs.config[n]._address}] The current range for reading the values was from address ${regs.config[regBlock.startIndex]._address} up to address ${regs.config[regBlock.endIndex - 1]._address}!`,
                                                         );
                                                         this.adapter.log.warn(
                                                             `[DevID_${device.coils.deviceId}/${regType}/${regs.config[n]._address}] Please make sure to configure the read process that both adresses are read in the same block!`,
                                                         );
                                                         this.adapter.log.warn(
-                                                            `[DevID_${device.coils.deviceId}/${regType}/${regs.config[n]._address}] The used scaleFactor from address ${scaleAddress} is not inside the same read block as the parameter on address ${regs.config[n].address}`,
+                                                            `[DevID_${device.coils.deviceId}/${regType}/${regs.config[n]._address}] The used scaleFactor from address ${scaleAddress} is not inside the same read block as the parameter on address ${regs.config[n]._address}`,
                                                         );
                                                     }
                                                 }
@@ -739,8 +743,7 @@ export class Master {
                     await this.#writeFloatsReg(fullId);
                 }
             } catch (err) {
-                const errorMsg = `[DevID_${regs.deviceId}/${regType}] Block ${regBlock.start}-${regBlock.start + regBlock.count - 1}: ${JSON.stringify(err)}`;
-                this.adapter.log.warn(errorMsg);
+                this.adapter.log.warn(this.#blockErrorText(regs.deviceId, regType, regBlock, err));
                 // Only abort the whole cycle when the connection itself is gone. A plain Modbus
                 // exception response (illegal address, illegal function, device busy) leaves the
                 // socket intact, so the remaining blocks of this register type must still be read
