@@ -1139,8 +1139,19 @@ export default class ModbusAdapter extends Adapter {
             removeUnderscorePrefix: boolean;
             preserveDotsInId: boolean;
             registerTypeInName: boolean | string;
+            padAddressInId?: boolean;
         },
     ): void {
+        // Width of the highest address of this device, used to zero-pad addresses in IDs (sorting)
+        let padWidth = 1;
+        if (localOptions.padAddressInId && !localOptions.showAliases) {
+            for (const c of config) {
+                const addr = parseInt(String(c.address ?? c._address), 10);
+                if (c.deviceId === deviceId && addr > 0) {
+                    padWidth = Math.max(padWidth, String(addr).length);
+                }
+            }
+        }
         for (let i = config.length - 1; i >= 0; i--) {
             if (config[i].deviceId !== deviceId) {
                 continue;
@@ -1197,7 +1208,7 @@ export default class ModbusAdapter extends Adapter {
                 );
             } else if (!localOptions.doNotIncludeAdrInId || !config[i].name) {
                 // add address if not disabled or name not empty
-                config[i].id += address;
+                config[i].id += localOptions.padAddressInId ? String(address).padStart(padWidth, '0') : address;
                 if (localOptions.preserveDotsInId) {
                     config[i].id += '_';
                 }
@@ -1460,6 +1471,7 @@ export default class ModbusAdapter extends Adapter {
             preserveDotsInId: boolean;
             removeUnderscorePrefix: boolean;
             registerTypeInName: boolean | string;
+            padAddressInId: boolean;
         } = {
             multiDeviceId: options.config.multiDeviceId,
             showAliases: params.showAliases === true || params.showAliases === 'true',
@@ -1473,6 +1485,7 @@ export default class ModbusAdapter extends Adapter {
             preserveDotsInId: params.preserveDotsInId === true || params.preserveDotsInId === 'true',
             removeUnderscorePrefix: params.removeUnderscorePrefix === true || params.removeUnderscorePrefix === 'true',
             registerTypeInName: params.registerTypeInName === 'true' ? true : params.registerTypeInName || false,
+            padAddressInId: params.padAddressInId === true || params.padAddressInId === 'true',
         };
 
         const oldObjects = await this.getForeignObjects(`${this.namespace}.*`);
