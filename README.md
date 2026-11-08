@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.9.0 (2026-11-08)
 - (@MMeinhardt1) New parameter `padAddressInId`: pads the address in the state ID with zeros to 5 digits (`00011_Name` instead of `11_Name`), so the IDs sort numerically (issue #317). Off by default. Changing it renames the state IDs, so the old objects and their settings are removed
 
 ### 7.8.1 (2026-10-23)
