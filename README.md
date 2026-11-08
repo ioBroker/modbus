@@ -207,6 +207,9 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@MMeinhardt1) New parameter `padAddressInId`: pads the address in the state ID with zeros to 5 digits (`00011_Name` instead of `11_Name`), so the IDs sort numerically (issue #317). Off by default. Changing it renames the state IDs, so the old objects and their settings are removed
+
 ### 7.8.1 (2026-10-23)
 - (@GermanBluefox) A response is taken only for the request it belongs to (issue #829): the TCP, SSL and UDP clients drop a frame with another transaction ID, the RTU clients one from another unit, and every client one with another function code. Before, a stale or duplicated answer - e.g. in the first poll cycle on a fresh connection - shifted every following response by one request, so the registers of another block were stored (e.g. a battery power of -4.1e27)
 - (@GermanBluefox) New parameter `ignoreTransactionId` (TCP, SSL, UDP master): accepts a response with any transaction ID, for devices that do not echo the one of the request. Off by default

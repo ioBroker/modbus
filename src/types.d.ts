@@ -303,7 +303,7 @@ export interface ModbusParameters {
     doNotIncludeAdrInId?: boolean | 'true';
     /** Remove the leading underscore from state names (only when doNotIncludeAdrInId is true) */
     removeUnderscorePrefix?: boolean | 'true';
-    /** Zero-pad the address in the state ID to the width of the highest address, so IDs sort numerically */
+    /** Zero-pad the address in the state ID to 5 digits, so IDs sort numerically. Changing it renames the state IDs */
     padAddressInId?: boolean | 'true';
     /** Preserve dots in the state ID instead of replacing them with underscores */
     preserveDotsInId?: boolean | 'true';
@@ -443,7 +443,7 @@ export interface ModbusParametersTyped extends ModbusParameters {
     doNotIncludeAdrInId: boolean | 'true';
     /** If doNotIncludeAdrInId is true, remove the leading "_" */
     removeUnderscorePrefix: boolean | 'true';
-    /** Zero-pad the address in the ID to the width of the highest address (e.g. "011_Name" instead of "11_Name") */
+    /** Zero-pad the address in the ID to 5 digits (e.g. "00011_Name" instead of "11_Name"). Changing it renames the IDs */
     padAddressInId?: boolean | 'true';
     /** Preserve dots in ID, else they will be replaced with "_" */
     preserveDotsInId: boolean | 'true';
