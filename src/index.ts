@@ -1139,8 +1139,14 @@ export default class ModbusAdapter extends Adapter {
             removeUnderscorePrefix: boolean;
             preserveDotsInId: boolean;
             registerTypeInName: boolean | string;
+            padAddressInId?: boolean;
         },
     ): void {
+        // A fixed width, as a Modbus address has at most 5 digits (65535). A width derived from the configured
+        // registers would rename all IDs of a table - and delete the old objects - as soon as a longer address is added
+        const addressInId = (address: number): number | string =>
+            localOptions.padAddressInId ? String(address).padStart(5, '0') : address;
+
         for (let i = config.length - 1; i >= 0; i--) {
             if (config[i].deviceId !== deviceId) {
                 continue;
@@ -1189,15 +1195,12 @@ export default class ModbusAdapter extends Adapter {
             }
 
             if (localOptions.showAliases) {
-                config[i].id += ModbusAdapter.address2alias(
-                    regType,
-                    address,
-                    localOptions.directAddresses,
-                    result.offset,
+                config[i].id += addressInId(
+                    ModbusAdapter.address2alias(regType, address, localOptions.directAddresses, result.offset),
                 );
             } else if (!localOptions.doNotIncludeAdrInId || !config[i].name) {
                 // add address if not disabled or name not empty
-                config[i].id += address;
+                config[i].id += addressInId(address);
                 if (localOptions.preserveDotsInId) {
                     config[i].id += '_';
                 }
@@ -1460,6 +1463,7 @@ export default class ModbusAdapter extends Adapter {
             preserveDotsInId: boolean;
             removeUnderscorePrefix: boolean;
             registerTypeInName: boolean | string;
+            padAddressInId: boolean;
         } = {
             multiDeviceId: options.config.multiDeviceId,
             showAliases: params.showAliases === true || params.showAliases === 'true',
@@ -1473,6 +1477,7 @@ export default class ModbusAdapter extends Adapter {
             preserveDotsInId: params.preserveDotsInId === true || params.preserveDotsInId === 'true',
             removeUnderscorePrefix: params.removeUnderscorePrefix === true || params.removeUnderscorePrefix === 'true',
             registerTypeInName: params.registerTypeInName === 'true' ? true : params.registerTypeInName || false,
+            padAddressInId: params.padAddressInId === true || params.padAddressInId === 'true',
         };
 
         const oldObjects = await this.getForeignObjects(`${this.namespace}.*`);

@@ -303,6 +303,8 @@ export interface ModbusParameters {
     doNotIncludeAdrInId?: boolean | 'true';
     /** Remove the leading underscore from state names (only when doNotIncludeAdrInId is true) */
     removeUnderscorePrefix?: boolean | 'true';
+    /** Zero-pad the address in the state ID to 5 digits, so IDs sort numerically. Changing it renames the state IDs */
+    padAddressInId?: boolean | 'true';
     /** Preserve dots in the state ID instead of replacing them with underscores */
     preserveDotsInId?: boolean | 'true';
     /** Include the register type in the state name. If a string, used as a channel name */
@@ -441,6 +443,8 @@ export interface ModbusParametersTyped extends ModbusParameters {
     doNotIncludeAdrInId: boolean | 'true';
     /** If doNotIncludeAdrInId is true, remove the leading "_" */
     removeUnderscorePrefix: boolean | 'true';
+    /** Zero-pad the address in the ID to 5 digits (e.g. "00011_Name" instead of "11_Name"). Changing it renames the IDs */
+    padAddressInId?: boolean | 'true';
     /** Preserve dots in ID, else they will be replaced with "_" */
     preserveDotsInId: boolean | 'true';
     /** No register type in name if `true` or channel name as string */
