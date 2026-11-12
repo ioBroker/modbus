@@ -198,6 +198,8 @@ export interface Options {
         enableSanitization?: boolean;
         /** TCP, SSL, UDP: accept a response with any transaction ID, for devices that do not echo it (issue #829) */
         ignoreTransactionId?: boolean;
+        /** TCP, SSL, UDP master: a timeout fails only its request, the connection stays open (issue #832) */
+        keepConnectionOnTimeout?: boolean;
 
         // Only for slave — read-notify feature
         /** Expire time in seconds for counter-mode read-notify states; 0 = no expire */
@@ -341,6 +343,13 @@ export interface ModbusParameters {
      * request and the registers of another block are stored (issue #829)
      */
     ignoreTransactionId?: boolean | 'true';
+    /**
+     * TCP, SSL, UDP master: a timeout fails only its request, the connection stays open. For gateways with
+     * several devices behind them, where one device does not answer for a while (issue #832). The
+     * connection is still closed on a socket error and when no device answers anymore. Has no effect
+     * together with `ignoreTransactionId`: then a late answer could be taken for the next request.
+     */
+    keepConnectionOnTimeout?: boolean | 'true';
 
     // Slave mode — read-notify feature
     /** Expire time in seconds for counter-mode states; 0 or omitted = no expire */
@@ -467,6 +476,8 @@ export interface ModbusParametersTyped extends ModbusParameters {
     enableSanitization?: boolean;
     /** TCP, SSL, UDP master: accept a response with any transaction ID, for devices that do not echo it */
     ignoreTransactionId?: boolean | 'true';
+    /** TCP, SSL, UDP master: a timeout fails only its request, the connection stays open (issue #832) */
+    keepConnectionOnTimeout?: boolean | 'true';
 
     // Slave mode — read-notify feature
     notifyOnReadExpire?: number | string;

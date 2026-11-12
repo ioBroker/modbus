@@ -34,6 +34,11 @@ export class Master {
      * this host - over TCP, UDP or SSL the endpoint belongs to the device on the other side.
      */
     private usedSerialPort: UsedSerialPort | undefined;
+    /**
+     * A timeout fails only its request, the connection stays open (issue #832). Only over TCP, SSL and
+     * UDP with the transaction ID checked: there a late answer to the timed out request is dropped.
+     */
+    private readonly keepConnectionOnTimeout: boolean;
 
     private readonly showDebug: boolean;
 
@@ -47,6 +52,18 @@ export class Master {
         this.objects = options.objects;
         this.deviceIds = Object.keys(options.devices).map(id => parseInt(id, 10));
         this.showDebug = adapter.common?.loglevel === 'debug' || adapter.common?.loglevel === 'silly';
+
+        const type = options.config.type;
+        const transactionIdChecked =
+            (type === 'tcp' || type === 'udp' || type === 'tcp-ssl') && !options.config.ignoreTransactionId;
+        this.keepConnectionOnTimeout = !!options.config.keepConnectionOnTimeout && transactionIdChecked;
+        if (options.config.keepConnectionOnTimeout && !transactionIdChecked) {
+            adapter.log.warn(
+                options.config.ignoreTransactionId
+                    ? '"keepConnectionOnTimeout" is ignored together with "ignoreTransactionId": a late answer could be taken for the next request'
+                    : `"keepConnectionOnTimeout" is only supported over TCP, SSL and UDP, not with "${type}"`,
+            );
+        }
 
         void adapter.setState('info.connection', false, true);
 
@@ -76,6 +93,7 @@ export class Master {
                     deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
                     ignoreTransactionId: options.config.ignoreTransactionId,
+                    keepConnectionOnTimeout: this.keepConnectionOnTimeout,
                 });
             } catch (e) {
                 adapter.log.error(`Cannot connect to "${tcp.ip}:${tcp.port || 502}": ${e}`);
@@ -99,6 +117,7 @@ export class Master {
                     deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
                     ignoreTransactionId: options.config.ignoreTransactionId,
+                    keepConnectionOnTimeout: this.keepConnectionOnTimeout,
                 });
             } catch (e) {
                 adapter.log.error(`Cannot connect to "${tcp.ip}:${tcp.port || 502}" (UDP): ${e}`);
@@ -140,6 +159,7 @@ export class Master {
                     deviceTimeouts: options.config.deviceTimeouts,
                     unitId: options.config.defaultDeviceId,
                     ignoreTransactionId: options.config.ignoreTransactionId,
+                    keepConnectionOnTimeout: this.keepConnectionOnTimeout,
                 });
             } catch (e) {
                 adapter.log.error(`Cannot connect to SSL "${tcp.ip}:${tcp.port || 502}": ${e}`);
@@ -292,6 +312,24 @@ export class Master {
             );
             this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
         });
+
+        // Only with keepConnectionOnTimeout: the request failed, but the connection stays open - unless
+        // no polled device answers anymore, then the connection itself is probably gone (issue #832)
+        this.modbusClient.on('requestTimeout', (info?: TrashedRequestInfo) => {
+            if (this.isStop || !this.#allDevicesSilent(info?.silentUnits)) {
+                return;
+            }
+            adapter.log.warn('No device answers anymore, reconnecting');
+            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+        });
+    }
+
+    /** True if every polled device timed out since the last answer of any device */
+    #allDevicesSilent(silentUnits: number[] | undefined): boolean {
+        if (!silentUnits?.length) {
+            return false;
+        }
+        return this.deviceIds.every(id => silentUnits.includes(id));
     }
 
     /**
@@ -1110,7 +1148,10 @@ export class Master {
             this.adapter.log.warn(
                 `Cannot write value ${val} to ${id} (unit ${obj.native.deviceId}, ${type} address ${obj.native.address}): ${formatError(err)}`,
             );
-            if (!this.isStop && !this.reconnectTimeout) {
+            // With keepConnectionOnTimeout a timeout does not mean, that the connection is gone: the
+            // `requestTimeout` handler reconnects when no device answers anymore (issue #832)
+            const keep = this.keepConnectionOnTimeout && !!(err as { timeout?: number } | null)?.timeout;
+            if (!keep && !this.isStop && !this.reconnectTimeout) {
                 this.#reconnect(true);
             }
         }

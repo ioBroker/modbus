@@ -60,6 +60,11 @@ export interface TrashedRequestInfo {
     unitId: number;
     /** The expired request timeout in ms */
     timeout?: number;
+    /**
+     * Only with `keepConnectionOnTimeout`: the units that did not answer since the last response of any
+     * unit, this one included. If every polled unit is in it, the connection itself is probably gone.
+     */
+    silentUnits?: number[];
 }
 
 /**
@@ -179,16 +184,26 @@ export default abstract class ModbusClientCore extends EventEmitter {
      * instead, as some TCP devices do not echo the unit ID.
      */
     protected checkUnitId = true;
+    /**
+     * A timeout fails only its request, the connection stays open (issue #832). Only safe where the
+     * transaction ID drops a late answer to the timed out request (TCP, SSL, UDP).
+     */
+    private readonly keepConnectionOnTimeout: boolean;
+    /** Units that timed out since the last response, see `TrashedRequestInfo.silentUnits` */
+    private readonly silentUnits = new Set<number>();
 
     protected constructor(options: {
         logger: ioBroker.Logger;
         timeout?: number;
         deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
+        /** A timeout fails only its request, the connection stays open. Only for TCP, SSL and UDP (issue #832) */
+        keepConnectionOnTimeout?: boolean;
     }) {
         super();
         this.log = options.logger;
         this.timeout ||= options.timeout || 5 * 1000; // 5s
         this.deviceTimeouts = options.deviceTimeouts;
+        this.keepConnectionOnTimeout = !!options.keepConnectionOnTimeout;
 
         this.on('data', this.onData);
         this.on('newState_ready', this.flush);
@@ -247,6 +262,18 @@ export default abstract class ModbusClientCore extends EventEmitter {
                     unitId: request.unitId,
                     timeout,
                 };
+                if (this.keepConnectionOnTimeout) {
+                    // Only this request failed: a late answer to it is dropped by its transaction ID,
+                    // so the next request can go out on the same connection (issue #832)
+                    this.silentUnits.add(request.unitId);
+                    info.silentUnits = [...this.silentUnits];
+                    this.log.warn(`Request timed out after ${timeout} ms, keeping the connection: ${description}`);
+                    this.emit('requestTimeout', info);
+                    if (this.inState('waiting')) {
+                        this.setState('ready');
+                    }
+                    return;
+                }
                 this.emit('trashCurrentRequest', info);
                 this.log.error(`Request timed out after ${timeout} ms: ${description}`);
                 this.setState('error');
@@ -392,6 +419,8 @@ export default abstract class ModbusClientCore extends EventEmitter {
         }
         // The request is answered now: nothing that arrives later may be taken as its response
         this.currentRequest = null;
+        // The connection works: units that timed out before are just not answering themselves
+        this.silentUnits.clear();
 
         const invalid = this.#invalidResponse(request, pdu);
         if (invalid) {
@@ -411,13 +440,28 @@ export default abstract class ModbusClientCore extends EventEmitter {
         const handler = this.responseHandler[request.fc];
         if (!handler) {
             this.log.warn(`Found no handler for fc ${request.fc}`);
-            throw new Error(`No handler implemented for fc ${request.fc}`);
+            request.cb({ message: `no handler implemented for fc ${request.fc}`, request: describeRequest(request) });
+            this.setState('ready');
+            return;
         }
 
+        // The request must be answered in any case: a request whose callback is never called leaves
+        // the promise of the poll pending forever, and the master stops polling (issue #831)
+        let answered = false;
+        const cb: ModbusFcHandler = (err, response) => {
+            answered = true;
+            request.cb(err, response);
+        };
         try {
-            handler(unitId, pdu, request.cb);
+            handler(unitId, pdu, cb);
         } catch (err) {
             this.log.warn(`Error in handler for FC${request.fc}: ${err}`);
+            if (!answered) {
+                cb({
+                    message: `invalid response: ${(err as Error).message || err}`,
+                    request: describeRequest(request),
+                });
+            }
         }
 
         this.setState('ready');

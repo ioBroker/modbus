@@ -44,6 +44,8 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
         unitId?: number;
         /** Accept a response with any transaction ID, for devices that do not echo it (issue #829) */
         ignoreTransactionId?: boolean;
+        /** A timeout fails only its request, the connection stays open (issue #832) */
+        keepConnectionOnTimeout?: boolean;
         logger: ioBroker.Logger;
         timeout?: number;
         deviceTimeouts?: { [unitId: number]: { timeout?: number; waitTime?: number } };
