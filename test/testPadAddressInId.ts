@@ -122,3 +122,23 @@ describe('padAddressInId', () => {
         ]);
     });
 });
+
+describe('forbidden characters in the name (modbus-templates issue #58)', () => {
+    it('replaces them in the ID, so the object and the state have the same ID', () => {
+        const regs: Reg[] = [
+            { deviceId: 1, _address: 40620, name: 'Out-of-grid –total power' },
+            { deviceId: 1, _address: 40587, name: 'Temperatur °C' },
+        ];
+        assert.deepStrictEqual(assign(regs, { padAddressInId: false }), [
+            'holdingRegisters.40620_Out-of-grid__total_power',
+            'holdingRegisters.40587_Temperatur__C',
+        ]);
+        // the name itself (shown as the name of the object) is not changed
+        assert.strictEqual(regs[0].name, 'Out-of-grid –total power');
+    });
+
+    it('keeps umlauts and the allowed special characters', () => {
+        const regs: Reg[] = [{ deviceId: 1, _address: 1, name: 'Größe (L1+L2)' }];
+        assert.deepStrictEqual(assign(regs, { padAddressInId: false }), ['holdingRegisters.1_Größe_(L1+L2)']);
+    });
+});

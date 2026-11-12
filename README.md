@@ -210,6 +210,7 @@ There are some programs in folder `test` to test the TCP communication:
 ### **WORK IN PROGRESS**
 - (@GermanBluefox) New parameter `keepConnectionOnTimeout` (TCP, SSL, UDP master): a timeout fails only its request, the connection stays open - for gateways with several devices behind them, where one device does not answer for a while (ioBroker.modbus issue #832). A late answer is dropped by its transaction ID. The connection is still closed on a socket error and when no device answers anymore. Off by default, no effect together with `ignoreTransactionId`
 - (@GermanBluefox) An error while decoding a response fails the request instead of leaving it without an answer: before, the poll waited forever and the master stopped polling (ioBroker.modbus issue #831)
+- (@GermanBluefox) Characters that are forbidden in object IDs (e.g. the dash `–` or `°` of a copied data sheet) are replaced by `_` in the state ID. Before, the object and the state got different IDs and the values were written to a state without object (modbus-templates issue #58)
 
 ### 7.9.0 (2026-11-08)
 - (@MMeinhardt1) New parameter `padAddressInId`: pads the address in the state ID with zeros to 5 digits (`00011_Name` instead of `11_Name`), so the IDs sort numerically (issue #317). Off by default. Changing it renames the state IDs, so the old objects and their settings are removed

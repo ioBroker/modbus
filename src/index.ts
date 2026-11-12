@@ -8,6 +8,9 @@ import tsv2registers from './convert';
 import { Master } from './lib/Master'; // Get common adapter utils
 import Slave from './lib/Slave'; // Get common adapter utils
 import { stringRegisterTypes, variableLengthStringTypes } from './lib/common';
+
+/** Characters that are forbidden in object IDs, the same as `FORBIDDEN_CHARS` of js-controller */
+const FORBIDDEN_CHARS = /[^._\-/ :!#$%&()+=@^{}|~\p{Ll}\p{Lu}\p{Nd}]+/gu;
 let serialPortList: (() => Promise<PortInfo[]>) | null = null;
 
 /** A serial PortInfo enriched with a stable physical-USB-port identifier (from /dev/serial/by-path, Linux only) */
@@ -1154,6 +1157,9 @@ export default class ModbusAdapter extends Adapter {
             if (config[i].deviceId !== deviceId) {
                 continue;
             }
+            // Characters that are forbidden in an object ID, e.g. the dash "–" of a copied data sheet: the
+            // object was created under another ID than the state was written to (modbus-templates issue #58)
+            const name = config[i].name ? config[i].name.replace(FORBIDDEN_CHARS, '_') : config[i].name;
 
             if (config[i].address === undefined && config[i]._address !== undefined) {
                 if (localOptions.showAliases) {
@@ -1211,28 +1217,24 @@ export default class ModbusAdapter extends Adapter {
 
             if (localOptions.preserveDotsInId) {
                 // preserve dots in name and add to ID
-                config[i].id += config[i].name ? config[i].name.replace(/\s/g, '_') : '';
+                config[i].id += name ? name.replace(/\s/g, '_') : '';
             } else {
                 // replace dots by underlines and add to ID
                 if (localOptions.doNotIncludeAdrInId) {
                     // It must be so, because of the bug https://github.com/ioBroker/ioBroker.modbus/issues/473
-                    // config[i].id += config[i].name ? config[i].name.replace(/\./g, '_').replace(/\s/g, '_') : '';
+                    // config[i].id += name ? name.replace(/\./g, '_').replace(/\s/g, '_') : '';
 
                     // But because of breaking change
                     if (localOptions.removeUnderscorePrefix) {
-                        config[i].id += config[i].name?.replace(/\./g, '_').replace(/\s/g, '_') || '';
+                        config[i].id += name?.replace(/\./g, '_').replace(/\s/g, '_') || '';
                     } else {
-                        config[i].id += config[i].name
-                            ? `_${config[i].name.replace(/\./g, '_').replace(/\s/g, '_')}`
-                            : '';
+                        config[i].id += name ? `_${name.replace(/\./g, '_').replace(/\s/g, '_')}` : '';
                     }
                 } else {
                     if (localOptions.removeUnderscorePrefix) {
-                        config[i].id += config[i].name?.replace(/\./g, '_').replace(/\s/g, '_') || '';
+                        config[i].id += name?.replace(/\./g, '_').replace(/\s/g, '_') || '';
                     } else {
-                        config[i].id += config[i].name
-                            ? `_${config[i].name.replace(/\./g, '_').replace(/\s/g, '_')}`
-                            : '';
+                        config[i].id += name ? `_${name.replace(/\./g, '_').replace(/\s/g, '_')}` : '';
                     }
                 }
             }
