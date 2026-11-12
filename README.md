@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.10.1 (2026-11-12)
 - (@GermanBluefox) Cyclic write (`cw`) of holding registers works again: the register was looked up with a wrong ID, so no value was written - neither for polled nor for not polled registers (ioBroker.modbus issue #771)
 
 ### 7.10.0 (2026-11-12)
