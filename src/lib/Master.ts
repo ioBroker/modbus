@@ -878,17 +878,21 @@ export class Master {
     async #writeFloatsReg(fullId: string): Promise<void> {
         const obj = this.objects[fullId];
         if (obj?.native?.len) {
-            const id = obj._id.substring(this.adapter.namespace.length + 1);
+            // `this.objects` (and so #writeValue) uses the full ID, the polled values and getStateAsync the ID
+            // without namespace. `obj._id` has no namespace, so it must not be cut (issue #771).
+            const id = fullId.substring(this.adapter.namespace.length + 1);
             if (!this.modbusClient || !this.connected || this.isStop) {
                 throw new Error('client disconnected');
             }
             if (this.ackObjects[id]) {
-                await this.#writeValue(id, this.ackObjects[id].val);
+                await this.#writeValue(fullId, this.ackObjects[id].val);
             } else {
                 // For non-polled CW registers, read value from ioBroker state database
                 const state = await this.adapter.getStateAsync(id);
                 if (state?.val !== undefined && state?.val !== null) {
-                    await this.#writeValue(id, state.val);
+                    await this.#writeValue(fullId, state.val);
+                } else if (this.showDebug) {
+                    this.adapter.log.debug(`Cyclic write of ${fullId} skipped: the state has no value yet`);
                 }
             }
         }

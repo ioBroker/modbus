@@ -207,6 +207,9 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@GermanBluefox) Cyclic write (`cw`) of holding registers works again: the register was looked up with a wrong ID, so no value was written - neither for polled nor for not polled registers (ioBroker.modbus issue #771)
+
 ### 7.10.0 (2026-11-12)
 - (@GermanBluefox) New parameter `keepConnectionOnTimeout` (TCP, SSL, UDP master): a timeout fails only its request, the connection stays open - for gateways with several devices behind them, where one device does not answer for a while (ioBroker.modbus issue #832). A late answer is dropped by its transaction ID. The connection is still closed on a socket error and when no device answers anymore. Off by default, no effect together with `ignoreTransactionId`
 - (@GermanBluefox) An error while decoding a response fails the request instead of leaving it without an answer: before, the poll waited forever and the master stopped polling (ioBroker.modbus issue #831)
