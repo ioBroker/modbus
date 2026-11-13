@@ -185,6 +185,16 @@ export interface Options {
         // Only for master
         poll?: number;
         recon?: number;
+        /**
+         * Number of times a failed (timed-out / connection-lost) block read is re-attempted before
+         * giving up on that block. Each retry re-sends the same request; the connection is only
+         * re-established if it actually dropped. 0 = no retries (original behaviour).
+         */
+        readRetryCount?: number;
+        /** Number of times a failed write is re-attempted before giving up. 0 = no retries (original behaviour) */
+        writeRetryCount?: number;
+        /** Delay in ms to wait before each retry resend (master mode). Default: 100 */
+        retryInterval?: number;
         maxBlock?: number;
         maxBoolBlock?: number;
         /** Max address gap (in registers/bits) bridged when merging registers into one read request. 0 = read only contiguous configured registers (issue #581) */
@@ -273,6 +283,12 @@ export interface ModbusParameters {
     poll?: number | string;
     /** Reconnect interval in ms after connection loss (master mode) */
     recon?: number | string;
+    /** Number of times a failed block read is re-attempted before giving up (0-10, master mode). Default 0 */
+    readRetryCount?: number | string;
+    /** Number of times a failed write is re-attempted before giving up (0-10, master mode). Default 0 */
+    writeRetryCount?: number | string;
+    /** Delay in ms to wait before each retry resend (master mode). Default 100 */
+    retryInterval?: number | string;
     /** Keep-alive interval in ms (master mode, TCP) */
     keepAliveInterval?: number | string;
     /** Maximum number of registers to read in one block (master mode) */
@@ -407,6 +423,12 @@ export interface ModbusParametersTyped extends ModbusParameters {
     poll: number | string;
     /** Reconnect interval in ms (for master) */
     recon: number | string;
+    /** Number of times a failed block read is re-attempted before giving up (0-10, for master). Default 0 */
+    readRetryCount: number | string;
+    /** Number of times a failed write is re-attempted before giving up (0-10, for master). Default 0 */
+    writeRetryCount: number | string;
+    /** Delay in ms to wait before each retry resend (for master). Default 100 */
+    retryInterval: number | string;
     /** The keep-alive interval in ms (for master and tcp) */
     keepAliveInterval: number | string;
     /** Pulse time for coils in ms (for master and write) */

@@ -14,22 +14,28 @@ export function createLoggingWrapper(originalLog: ioBroker.Logger, disableLoggin
         return originalLog;
     }
 
-    // List of connection error messages that should be suppressed when logging is disabled
-    const suppressedErrorMessages = ['Socket Error', 'Client in error state', 'Request timed out'];
+    // Connection-related messages to suppress when logging is disabled. These are handled, expected conditions
+    // logged at info level (kept quiet by default), so both the info and error wrappers filter them.
+    const suppressedMessages = ['Socket Error', 'Client in error state', 'Request timed out'];
+
+    const isSuppressed = (msg: string | Error): boolean =>
+        typeof msg === 'string' && suppressedMessages.some(pattern => msg.includes(pattern));
 
     return {
         silly: originalLog.silly.bind(originalLog),
         level: originalLog.level,
         debug: originalLog.debug.bind(originalLog),
-        info: originalLog.info.bind(originalLog),
-        warn: originalLog.warn.bind(originalLog),
-        error: (msg: string | Error, ...args: any[]): void => {
-            // Check if this is a connection error message that should be suppressed
-            if (typeof msg === 'string' && suppressedErrorMessages.some(pattern => msg.includes(pattern))) {
-                // Suppress this error message when logging is disabled
+        info: (msg: string | Error, ...args: any[]): void => {
+            if (isSuppressed(msg)) {
                 return;
             }
-            // Allow all other error messages through
+            originalLog.info(msg.toString() + (args.length > 0 ? ` ${args.join(', ')}` : ''));
+        },
+        warn: originalLog.warn.bind(originalLog),
+        error: (msg: string | Error, ...args: any[]): void => {
+            if (isSuppressed(msg)) {
+                return;
+            }
             originalLog.error(msg.toString() + (args.length > 0 ? ` ${args.join(', ')}` : ''));
         },
     };

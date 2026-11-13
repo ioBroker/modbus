@@ -80,14 +80,15 @@ describe('createLoggingWrapper — disableLogging (issue #525)', function () {
         assert.deepStrictEqual(calls.error, ['boom a, b']);
     });
 
-    it('never suppresses warn/info/debug — only error is filtered', () => {
+    it('suppresses matching connection messages at both error and info level, leaves warn/debug alone', () => {
         const { logger, calls } = makeRecordingLogger();
         const wrapped = createLoggingWrapper(logger, true);
         wrapped.warn('Socket Error as a warning stays visible');
-        wrapped.info('Client in error state. as info stays visible');
+        // Connection noise now lives at info level (a handled condition) and must be dropped there too.
+        wrapped.info('Client in error state. as info is suppressed');
         wrapped.debug('Request timed out. as debug stays visible');
         assert.deepStrictEqual(calls.warn, ['Socket Error as a warning stays visible']);
-        assert.deepStrictEqual(calls.info, ['Client in error state. as info stays visible']);
+        assert.deepStrictEqual(calls.info, []);
         assert.deepStrictEqual(calls.debug, ['Request timed out. as debug stays visible']);
     });
 
