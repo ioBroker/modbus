@@ -296,8 +296,12 @@ export default abstract class ModbusClientCore extends EventEmitter {
                     return;
                 }
                 this.emit('trashCurrentRequest', info);
-                this.log.error(`Request timed out after ${timeout} ms: ${description}`);
-                this.setState('error');
+                this.log.info(`Request timed out after ${timeout} ms: ${description}`);
+                // A read timeout is NOT a connection failure - the device may simply be slow or
+                // overloaded. Keep the socket up (return to 'ready' so the next queued request flushes)
+                // instead of tearing it down; that lets a retry cheaply resend on the same connection.
+                // A genuinely dead session still surfaces as a real socket error/close and reconnects.
+                this.setState('ready');
             }, timeout);
 
             this.setState('waiting');
@@ -306,15 +310,24 @@ export default abstract class ModbusClientCore extends EventEmitter {
     };
 
     onClosed(): void {
-        if (this.currentRequest) {
-            this.log.debug('Clearing timeout of the current request.');
-            if (this.currentRequest.timeout) {
-                clearTimeout(this.currentRequest.timeout);
-                this.currentRequest.timeout = undefined;
+        // The socket is gone, so any in-flight or queued request can never be answered. Reject them all (instead
+        // of leaving their promises pending forever) so callers - e.g. a block-read retry - react promptly.
+        const reject = (request: ModbusRequest): void => {
+            if (request.timeout) {
+                clearTimeout(request.timeout);
+                request.timeout = undefined;
             }
-        }
+            request.cb?.({ message: 'connection closed', request: describeRequest(request) });
+        };
 
         this.log.debug('Cleaning up request fifo.');
+        if (this.currentRequest) {
+            reject(this.currentRequest);
+            this.currentRequest = null;
+        }
+        for (const request of this.reqFifo) {
+            reject(request);
+        }
         this.reqFifo = [];
     }
 

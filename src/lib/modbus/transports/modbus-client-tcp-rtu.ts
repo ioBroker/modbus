@@ -93,7 +93,7 @@ export default class ModbusClientTcpRtu extends ModbusClientCore {
     };
 
     #onSocketError = (err: Error | string): void => {
-        this.log.error(`Socket Error ${err}`);
+        this.log.info(`Socket Error ${err}`);
         this.setState('error');
         this.emit('error', err);
     };
@@ -164,7 +164,7 @@ export default class ModbusClientTcpRtu extends ModbusClientCore {
     };
 
     #onError = (): void => {
-        this.log.error(`Client in error state (${this.tcp.host}:${this.tcp.port}), closing the socket.`);
+        this.log.info(`Client in error state (${this.tcp.host}:${this.tcp.port}), closing the socket.`);
         this.socket?.destroy();
     };
 

@@ -39,6 +39,8 @@ const defaultParams = {
     slave: 0,
     poll: 1000,
     recon: 60000,
+    readRetryCount: 0,
+    writeRetryCount: 0,
     keepAliveInterval: 0,
     maxBlock: 100,
     maxBoolBlock: 128,
@@ -757,6 +759,15 @@ export default class ModbusAdapter extends Adapter {
                 this.log.info(`Slave Reconnect time set to 1000ms because was too small (${options.config.recon})`);
                 options.config.recon = 1000;
             }
+            // Number of times a failed block read / write is re-attempted before giving up (issue: modbus timeout retries).
+            // Clamped to 0..10; an unset or invalid value falls back to the default of 0 (no retries - legacy behaviour).
+            const readRetryCount = parseInt(params.readRetryCount as string, 10);
+            options.config.readRetryCount = isNaN(readRetryCount) ? 0 : Math.max(0, Math.min(10, readRetryCount));
+            const writeRetryCount = parseInt(params.writeRetryCount as string, 10);
+            options.config.writeRetryCount = isNaN(writeRetryCount) ? 0 : Math.max(0, Math.min(10, writeRetryCount));
+            // Delay before each retry resend (ms). Unset/invalid falls back to 100; clamped to >= 0.
+            const retryInterval = parseInt(params.retryInterval as string, 10);
+            options.config.retryInterval = isNaN(retryInterval) ? 100 : Math.max(0, retryInterval);
             options.config.maxBlock = parseInt(params.maxBlock as string, 10) || 100;
             options.config.maxBoolBlock = parseInt(params.maxBoolBlock as string, 10) || 128;
             // Max address gap (in registers/bits) that may be bridged when merging registers into one

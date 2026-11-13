@@ -26,18 +26,19 @@ const noop = (): void => {
 };
 
 /** Logger that records what would have been written to the ioBroker log */
-function recordingLogger(): { logger: ioBroker.Logger; errors: string[]; warnings: string[] } {
+function recordingLogger(): { logger: ioBroker.Logger; errors: string[]; warnings: string[]; infos: string[] } {
     const errors: string[] = [];
     const warnings: string[] = [];
+    const infos: string[] = [];
     const logger = {
         debug: noop,
-        info: noop,
+        info: (msg: string) => infos.push(msg),
         silly: noop,
         level: 'info',
         warn: (msg: string) => warnings.push(msg),
         error: (msg: string) => errors.push(msg),
     } as unknown as ioBroker.Logger;
-    return { logger, errors, warnings };
+    return { logger, errors, warnings, infos };
 }
 
 function bind(server: Socket): Promise<number> {
@@ -110,7 +111,7 @@ describe('request diagnostics (issue #811)', function () {
         server.on('message', noop); // receive, but never answer
         const port = await bind(server);
 
-        const { logger, errors } = recordingLogger();
+        const { logger, errors, infos } = recordingLogger();
         const client = new ModbusClientUDP({
             udp: { host: HOST, port, autoReconnect: false },
             unitId: 7,
@@ -149,8 +150,9 @@ describe('request diagnostics (issue #811)', function () {
             assert.strictEqual(trashed[0].unitId, 7);
             assert.match(trashed[0].request, /FC6 write single register, address 6609/);
 
-            const timeoutLog = errors.find(e => e.includes('Request timed out'));
-            assert.ok(timeoutLog, `expected a timeout error in the log, got: ${errors.join(' | ')}`);
+            // The timeout is now logged at info level (a handled condition), not as an error.
+            const timeoutLog = infos.find(e => e.includes('Request timed out'));
+            assert.ok(timeoutLog, `expected a timeout log entry, got: ${infos.join(' | ')}`);
             assert.match(timeoutLog!, /FC6 write single register, address 6609, value 0x0050, unit 7/);
         } finally {
             client.close();

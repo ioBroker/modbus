@@ -19,6 +19,19 @@ export class Master {
     private readonly ackObjects: { [id: string]: { val: ioBroker.StateValue } } = {};
     private readonly objects: Options['objects'];
     private isStop = false;
+    /**
+     * True while an operation (a block read or a write) is being retried. Suppresses the auto-poll that a retry
+     * reconnect would otherwise start, so only the single operation under retry is re-sent and the surrounding
+     * polling cycle keeps running on its own (avoids two overlapping cycles, cf. issue #595).
+     */
+    private retrying = false;
+    /**
+     * True while the underlying connection is known to be dead (a disconnect/close/error event fired) and a
+     * reconnect has not yet re-established it. Drives the "reconnect only when needed" decision in the retry
+     * logic: a pure timeout leaves this false, so retries cheaply resend on the same socket; only an actually-
+     * dropped session triggers a reconnect. Reset to false by the `connect` handler.
+     */
+    private sessionDead = false;
     private pulseList: { [id: string]: ioBroker.StateValue } = {};
     private sendBuffer: { [id: string]: ioBroker.StateValue } = {};
     private readonly devices: Options['devices'];
@@ -229,6 +242,7 @@ export class Master {
 
         this.modbusClient
             .on('connect', () => {
+                this.sessionDead = false;
                 if (!this.connected) {
                     if (options.config.type === 'tcp' || options.config.type === 'udp') {
                         adapter.log.info(`Connected to slave ${options.config.tcp?.ip}`);
@@ -259,7 +273,11 @@ export class Master {
                     this.reconnectTimeout = null;
                 }
 
-                void this.#poll().catch(err => this.adapter.log.error(err));
+                // A reconnect that is part of a retry sequence must not start its own polling cycle -
+                // the in-flight cycle (which is re-sending the failed operation) continues on its own.
+                if (!this.retrying) {
+                    void this.#poll().catch(err => this.adapter.log.error(err));
+                }
 
                 this.keepAliveTimeout && adapter.clearTimeout(this.keepAliveTimeout);
                 this.keepAliveTimeout = adapter.setTimeout(() => {
@@ -268,14 +286,16 @@ export class Master {
                 }, options.config.keepAliveInterval || 1000);
             })
             .on('disconnect', () => {
+                this.sessionDead = true;
                 if (this.isStop) {
                     return;
                 }
 
-                this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+                this.#scheduleAutoReconnect();
             });
 
         this.modbusClient.on('close', () => {
+            this.sessionDead = true;
             if (this.usedSerialPort) {
                 // The port is closed - unplugged, or given up before a reconnect - so it is free
                 // again until the `connect` above gets it back
@@ -286,10 +306,11 @@ export class Master {
                 return;
             }
 
-            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.#scheduleAutoReconnect();
         });
 
         this.modbusClient.on('error', err => {
+            this.sessionDead = true;
             if (this.isStop) {
                 return;
             }
@@ -299,18 +320,19 @@ export class Master {
                 adapter.log.warn(`On error: ${formatError(err)}`);
             }
 
-            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.#scheduleAutoReconnect();
         });
 
         this.modbusClient.on('trashCurrentRequest', (info?: TrashedRequestInfo) => {
             if (this.isStop) {
                 return;
             }
-            // Name the dropped request: it is the one the device did not answer (issue #811)
-            adapter.log.warn(
-                `Request cancelled (${info?.reason || 'unknown reason'})${info?.request ? `: ${info.request}` : ''}, reconnecting`,
+            // Name the dropped request: it is the one the device did not answer (issue #811). Debug-level - a
+            // handled, expected condition; the retry logic reports retries at info level.
+            adapter.log.debug(
+                `Request cancelled (${info?.reason || 'unknown reason'})${info?.request ? `: ${info.request}` : ''}`,
             );
-            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.#scheduleAutoReconnect();
         });
 
         // Only with keepConnectionOnTimeout: the request failed, but the connection stays open - unless
@@ -364,6 +386,116 @@ export class Master {
             return Promise.resolve();
         }
         return new Promise<void>(resolve => this.adapter.setTimeout(resolve, ms));
+    }
+
+    /** True for failures worth re-attempting (timeouts / connection loss), as opposed to device exceptions. */
+    #isRetryable(err: unknown): boolean {
+        if (!err || typeof err !== 'object') {
+            return false;
+        }
+        const e = err as { exceptionCode?: number };
+        // A Modbus exception response is a definitive answer from the device - retrying it is pointless.
+        return e.exceptionCode === undefined;
+    }
+
+    /**
+     * Schedule an automatic reconnect unless a retry sequence is currently driving reconnection itself. While
+     * `retrying` is set, the retry logic owns the connection and must not be raced by these event handlers -
+     * otherwise a stray `#reconnect()` would tear down the very socket a retry just opened.
+     */
+    #scheduleAutoReconnect(): void {
+        if (this.retrying) {
+            return;
+        }
+        this.reconnectTimeout ||= this.adapter.setTimeout(() => this.#reconnect(), 1000);
+    }
+
+    /**
+     * Re-establish the (dead) connection and wait until we are connected again, so a retry has a live socket to
+     * send on. Bounded by a deadline so an unreachable device cannot stall the polling cycle.
+     */
+    async #reconnectForRetry(): Promise<void> {
+        this.#reconnect(true);
+        const deadline = Date.now() + 5000;
+        while (!this.isStop && !this.connected) {
+            if (Date.now() > deadline) {
+                break;
+            }
+            await this.#waitAsync(20);
+        }
+    }
+
+    /**
+     * Perform an operation, re-attempting it up to `maxRetries` times when it fails with a timeout or
+     * connection loss. Each retry is logged as `[retry/k/N]...` and re-sends the same request on the existing
+     * socket (a cheap resend); the connection is only torn down and re-established if it actually dropped
+     * (`sessionDead`). Returns the first successful result, or throws the last error once every attempt (or a
+     * non-retryable device exception) fails. `errorText` renders one log line for a failed attempt.
+     */
+    async #retryable<T>(maxRetries: number, errorText: (err: unknown) => string, doOp: () => Promise<T>): Promise<T> {
+        if (maxRetries <= 0) {
+            return await doOp();
+        }
+
+        // A retry sequence owns reconnection while active: the automatic reconnect handlers are suppressed
+        // (#scheduleAutoReconnect) and the auto-poll on `connect` is skipped, so only this operation is
+        // re-sent and no competing polling cycle starts.
+        const retryInterval = this.options.config.retryInterval ?? 100;
+        this.retrying = true;
+        let needsCleanup = false;
+        try {
+            let attempt = 0;
+            for (;;) {
+                try {
+                    // Ensure a live socket before sending: reconnect only when the session actually dropped.
+                    // A pure timeout leaves `sessionDead` false, so we cheaply resend on the same socket.
+                    if (!this.connected || this.sessionDead) {
+                        await this.#reconnectForRetry();
+                    }
+                    // A retry must have a live socket; if reconnection did not bring one up, fail fast (instead
+                    // of queueing into a dead FIFO that would never be flushed) and count it as an attempt.
+                    if (attempt > 0 && !this.connected) {
+                        throw new Error('no connection for retry');
+                    }
+                    return await doOp();
+                } catch (err) {
+                    const retryable = this.#isRetryable(err);
+                    if (!retryable || attempt >= maxRetries) {
+                        // A dead-socket failure needs the connection torn down and re-established; a Modbus
+                        // exception or a pure timeout on a live socket left it healthy, so only clean up then.
+                        needsCleanup = retryable && (!this.connected || this.sessionDead);
+                        throw err;
+                    }
+                    attempt += 1;
+                    this.adapter.log.info(`[retry/${attempt}/${maxRetries}]${errorText(err)}`);
+                    // Cheap resend: settle briefly on the same socket (the read timeout already spaces silent
+                    // attempts); a dropped session is re-established at the top of the next iteration.
+                    await this.#waitAsync(retryInterval);
+                }
+            }
+        } finally {
+            if (needsCleanup && !this.isStop) {
+                this.#reconnect(true);
+            }
+            this.retrying = false;
+        }
+    }
+
+    /**
+     * Perform a single register-block read, re-attempting it up to `readRetryCount` times when it fails with a
+     * timeout or connection loss. See {@link #retryable} for the retry semantics.
+     */
+    async #readWithRetry<T>(
+        deviceId: number,
+        regType: string,
+        regBlock: { start: number; count: number },
+        doRead: () => Promise<T>,
+    ): Promise<T> {
+        return this.#retryable(
+            this.options.config.readRetryCount ?? 0,
+            err => this.#blockErrorText(deviceId, regType, regBlock, err),
+            doRead,
+        );
     }
 
     #reconnect(isImmediately?: boolean): void {
@@ -432,17 +564,14 @@ export class Master {
         }
 
         if (this.modbusClient && this.connected && !this.isStop) {
+            const modbus = this.modbusClient;
             let response: ModbusReadResultBinary;
             try {
-                if (regType === 'disInputs') {
-                    response = await this.modbusClient.readDiscreteInputs(
-                        regs.deviceId,
-                        regBlock.start,
-                        regBlock.count,
-                    );
-                } else {
-                    response = await this.modbusClient.readCoils(regs.deviceId, regBlock.start, regBlock.count);
-                }
+                response = await this.#readWithRetry(regs.deviceId, regType, regBlock, () =>
+                    regType === 'disInputs'
+                        ? modbus.readDiscreteInputs(regs.deviceId, regBlock.start, regBlock.count)
+                        : modbus.readCoils(regs.deviceId, regBlock.start, regBlock.count),
+                );
             } catch (err) {
                 this.adapter.log.warn(this.#blockErrorText(regs.deviceId, regType, regBlock, err));
                 // Only abort the whole cycle when the connection itself is gone. A plain Modbus
@@ -555,21 +684,14 @@ export class Master {
         }
 
         if (this.modbusClient && this.connected && !this.isStop) {
+            const modbus = this.modbusClient;
             let response;
             try {
-                if (regType === 'inputRegs') {
-                    response = await this.modbusClient.readInputRegisters(
-                        regs.deviceId,
-                        regBlock.start,
-                        regBlock.count,
-                    );
-                } else {
-                    response = await this.modbusClient.readHoldingRegisters(
-                        regs.deviceId,
-                        regBlock.start,
-                        regBlock.count,
-                    );
-                }
+                response = await this.#readWithRetry(regs.deviceId, regType, regBlock, () =>
+                    regType === 'inputRegs'
+                        ? modbus.readInputRegisters(regs.deviceId, regBlock.start, regBlock.count)
+                        : modbus.readHoldingRegisters(regs.deviceId, regBlock.start, regBlock.count),
+                );
                 if (this.showDebug) {
                     this.adapter.log.debug(`[DevID_${regs.deviceId}/${regType}] Poll address ${regBlock.start} DONE`);
                 }
@@ -1082,8 +1204,12 @@ export class Master {
         }
 
         const type: RegisterType = obj.native.regType;
+        const modbusClient = this.modbusClient;
 
         try {
+            // The actual I/O, deferred so a failed write can be re-sent as a whole (see #retryable).
+            let doWrite: (() => Promise<unknown>) | undefined;
+
             if (type === 'coils') {
                 if (val === 'true' || val === true) {
                     val = 1;
@@ -1091,9 +1217,8 @@ export class Master {
                 if (val === 'false' || val === false) {
                     val = 0;
                 }
-                val = parseFloat(val as string);
-
-                await this.modbusClient.writeSingleCoil(obj.native.deviceId, obj.native.address, !!val);
+                const coilVal = !!parseFloat(val as string);
+                doWrite = () => modbusClient.writeSingleCoil(obj.native.deviceId, obj.native.address, coilVal);
             } else if (type === 'holdingRegs') {
                 if (obj.native.float === undefined) {
                     obj.native.float =
@@ -1123,26 +1248,39 @@ export class Master {
                 ) {
                     const hrBuffer = writeValue(obj.native.type, val as string | number, obj.native.len);
 
-                    await this.modbusClient.writeMultipleRegisters(obj.native.deviceId, obj.native.address, hrBuffer);
+                    doWrite = () => modbusClient.writeMultipleRegisters(obj.native.deviceId, obj.native.address, hrBuffer);
                 } else {
                     // FC06
                     const buffer = writeValue(obj.native.type, val as number, 1);
 
                     if (obj.native.len > 1) {
-                        for (let r = 0; r < obj.native.len / 2; r++) {
-                            const subBuffer = buffer.subarray(r * 2, r * 2 + 2);
-                            await this.modbusClient.writeSingleRegister(
-                                obj.native.deviceId,
-                                obj.native.address + r,
-                                subBuffer,
-                            );
-                            await this.#waitAsync(this.options.config.writeInterval);
-                        }
+                        doWrite = async () => {
+                            for (let r = 0; r < obj.native.len / 2; r++) {
+                                const subBuffer = buffer.subarray(r * 2, r * 2 + 2);
+                                await modbusClient.writeSingleRegister(
+                                    obj.native.deviceId,
+                                    obj.native.address + r,
+                                    subBuffer,
+                                );
+                                await this.#waitAsync(this.options.config.writeInterval);
+                            }
+                        };
                     } else {
-                        await this.modbusClient.writeSingleRegister(obj.native.deviceId, obj.native.address, buffer);
+                        doWrite = () => modbusClient.writeSingleRegister(obj.native.deviceId, obj.native.address, buffer);
                     }
                 }
             }
+
+            if (doWrite) {
+                // A failed write is re-sent up to `writeRetryCount` times (0 = no retries), same as a block read.
+                await this.#retryable(
+                    this.options.config.writeRetryCount ?? 0,
+                    err =>
+                        `Cannot write value ${val} to ${id} (unit ${obj.native.deviceId}, ${type} address ${obj.native.address}): ${formatError(err)}`,
+                    doWrite,
+                );
+            }
+
             if (this.showDebug) {
                 this.adapter.log.debug(`Write successfully [${obj.native.address}]: ${val}`);
             }

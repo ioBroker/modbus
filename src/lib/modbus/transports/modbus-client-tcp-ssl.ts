@@ -109,7 +109,7 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
     };
 
     #onSocketError = (err: Error | string): void => {
-        this.log.error(`SSL/TLS Socket Error${err}`);
+        this.log.info(`SSL/TLS Socket Error${err}`);
         this.setState('error');
         this.emit('error', err);
     };
@@ -150,7 +150,7 @@ export default class ModbusClientTcpSsl extends ModbusClientCore {
     };
 
     #onError = (): void => {
-        this.log.error(`SSL/TLS Client in error state (${this.tcp.host}:${this.tcp.port}), closing the socket.`);
+        this.log.info(`SSL/TLS Client in error state (${this.tcp.host}:${this.tcp.port}), closing the socket.`);
         this.socket?.destroy();
     };
 
