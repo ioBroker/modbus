@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.11.0 (2026-11-13)
 - (@GermanBluefox) `readHoldingRegisters` and `readInputRegisters` of the client accept `{ timeout, probe }`: a probe (e.g. of the device detection of ioBroker.modbus) has its own timeout, and a timeout fails only this request - the connection stays open and no reconnect is triggered
 
 ### 7.10.1 (2026-11-12)
