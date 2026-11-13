@@ -158,12 +158,25 @@ type ModbusFcHandler = (
         | ModbusWriteResultSingleRegister,
 ) => void;
 
+/** Options of a single read request */
+export interface ModbusRequestOptions {
+    /** Timeout of this request in ms instead of the configured one */
+    timeout?: number;
+    /**
+     * A probe, e.g. of the device detection, that may hit an address the device does not answer: a timeout fails
+     * only this request. The connection stays open, no `requestTimeout` or `trashCurrentRequest` is emitted and
+     * the unit is not counted as silent.
+     */
+    probe?: boolean;
+}
+
 type ModbusRequest = {
     timeout?: NodeJS.Timeout;
     cb: ModbusFcHandler;
     unitId: number;
     fc: number;
     pdu: Buffer;
+    options?: ModbusRequestOptions;
 };
 type ModbusFcState = 'waiting' | 'init' | 'error' | 'ready' | 'connect' | 'closed';
 
@@ -245,7 +258,7 @@ export default abstract class ModbusClientCore extends EventEmitter {
             const request = (this.currentRequest = this.reqFifo.shift()!);
 
             // Per-device timeout overrides the global one for this unit ID (issue #605)
-            const timeout = this.deviceTimeouts?.[request.unitId]?.timeout || this.timeout;
+            const timeout = request.options?.timeout || this.deviceTimeouts?.[request.unitId]?.timeout || this.timeout;
 
             request.timeout = setTimeout(() => {
                 const description = describeRequest(request);
@@ -255,6 +268,14 @@ export default abstract class ModbusClientCore extends EventEmitter {
                     this.currentRequest = null;
                 }
                 request.cb?.({ message: 'timeout', timeout, request: description });
+                if (request.options?.probe) {
+                    // An unanswered probe is expected, e.g. a register of another device type
+                    this.log.debug(`Probe timed out after ${timeout} ms: ${description}`);
+                    if (this.inState('waiting')) {
+                        this.setState('ready');
+                    }
+                    return;
+                }
                 const info: TrashedRequestInfo = {
                     reason: `timeout after ${timeout} ms`,
                     request: description,
@@ -467,8 +488,14 @@ export default abstract class ModbusClientCore extends EventEmitter {
         this.setState('ready');
     };
 
-    queueRequest = (unitId: number, fc: number, pdu: Buffer, cb: ModbusFcHandler): void => {
-        this.reqFifo.push({ unitId, fc, pdu, cb });
+    queueRequest = (
+        unitId: number,
+        fc: number,
+        pdu: Buffer,
+        cb: ModbusFcHandler,
+        options?: ModbusRequestOptions,
+    ): void => {
+        this.reqFifo.push({ unitId, fc, pdu, cb, options });
 
         if (this.inState('ready')) {
             this.flush();
@@ -635,17 +662,28 @@ export default abstract class ModbusClientCore extends EventEmitter {
             cb(null, resp);
         }
     };
-    readHoldingRegisters = (unitId: number, start: number, quantity: number): Promise<ModbusReadResultNumber> => {
+    readHoldingRegisters = (
+        unitId: number,
+        start: number,
+        quantity: number,
+        options?: ModbusRequestOptions,
+    ): Promise<ModbusReadResultNumber> => {
         return new Promise<ModbusReadResultNumber>((resolve, reject) => {
             const pdu = new Put().word8be(3).word16be(start).word16be(quantity).buffer();
 
-            this.queueRequest(unitId, 3, pdu, (err, resp) => {
-                if (err) {
-                    reject(requestError(err));
-                } else {
-                    resolve(resp as ModbusReadResultNumber);
-                }
-            });
+            this.queueRequest(
+                unitId,
+                3,
+                pdu,
+                (err, resp) => {
+                    if (err) {
+                        reject(requestError(err));
+                    } else {
+                        resolve(resp as ModbusReadResultNumber);
+                    }
+                },
+                options,
+            );
         });
     };
 
@@ -691,17 +729,28 @@ export default abstract class ModbusClientCore extends EventEmitter {
             cb(null, resp);
         }
     };
-    readInputRegisters = (unitId: number, start: number, quantity: number): Promise<ModbusReadResultNumber> => {
+    readInputRegisters = (
+        unitId: number,
+        start: number,
+        quantity: number,
+        options?: ModbusRequestOptions,
+    ): Promise<ModbusReadResultNumber> => {
         return new Promise((resolve, reject) => {
             const pdu = new Put().word8be(4).word16be(start).word16be(quantity).buffer();
 
-            this.queueRequest(unitId, 4, pdu, (err, resp) => {
-                if (err) {
-                    reject(requestError(err));
-                } else {
-                    resolve(resp as ModbusReadResultNumber);
-                }
-            });
+            this.queueRequest(
+                unitId,
+                4,
+                pdu,
+                (err, resp) => {
+                    if (err) {
+                        reject(requestError(err));
+                    } else {
+                        resolve(resp as ModbusReadResultNumber);
+                    }
+                },
+                options,
+            );
         });
     };
 

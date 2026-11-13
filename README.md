@@ -207,6 +207,9 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@GermanBluefox) `readHoldingRegisters` and `readInputRegisters` of the client accept `{ timeout, probe }`: a probe (e.g. of the device detection of ioBroker.modbus) has its own timeout, and a timeout fails only this request - the connection stays open and no reconnect is triggered
+
 ### 7.10.1 (2026-11-12)
 - (@GermanBluefox) Cyclic write (`cw`) of holding registers works again: the register was looked up with a wrong ID, so no value was written - neither for polled nor for not polled registers (ioBroker.modbus issue #771)
 
