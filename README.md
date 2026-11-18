@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.11.1 (2026-11-18)
 - (@LoPromise) When the connection closes, the pending and queued requests are rejected with `connection closed` at once instead of staying open
 
 ### 7.11.0 (2026-11-13)
