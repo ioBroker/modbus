@@ -306,15 +306,24 @@ export default abstract class ModbusClientCore extends EventEmitter {
     };
 
     onClosed(): void {
-        if (this.currentRequest) {
-            this.log.debug('Clearing timeout of the current request.');
-            if (this.currentRequest.timeout) {
-                clearTimeout(this.currentRequest.timeout);
-                this.currentRequest.timeout = undefined;
+        // The socket is gone, so any in-flight or queued request can never be answered. Reject them all (instead
+        // of leaving their promises pending forever) so callers - e.g. a block-read retry - react promptly.
+        const reject = (request: ModbusRequest): void => {
+            if (request.timeout) {
+                clearTimeout(request.timeout);
+                request.timeout = undefined;
             }
-        }
+            request.cb?.({ message: 'connection closed', request: describeRequest(request) });
+        };
 
         this.log.debug('Cleaning up request fifo.');
+        if (this.currentRequest) {
+            reject(this.currentRequest);
+            this.currentRequest = null;
+        }
+        for (const request of this.reqFifo) {
+            reject(request);
+        }
         this.reqFifo = [];
     }
 
