@@ -175,7 +175,11 @@ describe('Master block-read retries', function () {
     });
 
     it('logs each retry and gives up after exhausting all attempts', async () => {
-        const capture = { warns: [] as string[], infos: [] as string[], states: [] as Array<{ id: string; val: unknown }> };
+        const capture = {
+            warns: [] as string[],
+            infos: [] as string[],
+            states: [] as Array<{ id: string; val: unknown }>,
+        };
         const requests: RequestInfo[] = [];
         let connectionCount = 0;
 
@@ -216,9 +220,18 @@ describe('Master block-read retries', function () {
         await wait(100);
 
         const retryLogs = capture.infos.filter(w => /^\[retry\/\d+\/3\]/.test(w));
-        assert.ok(retryLogs.some(w => w.includes('[retry/1/3]')), 'expected a [retry/1/3] log');
-        assert.ok(retryLogs.some(w => w.includes('[retry/2/3]')), 'expected a [retry/2/3] log');
-        assert.ok(retryLogs.some(w => w.includes('[retry/3/3]')), 'expected a [retry/3/3] log');
+        assert.ok(
+            retryLogs.some(w => w.includes('[retry/1/3]')),
+            'expected a [retry/1/3] log',
+        );
+        assert.ok(
+            retryLogs.some(w => w.includes('[retry/2/3]')),
+            'expected a [retry/2/3] log',
+        );
+        assert.ok(
+            retryLogs.some(w => w.includes('[retry/3/3]')),
+            'expected a [retry/3/3] log',
+        );
         // Each retry line carries the device/register-type and block range.
         for (const n of [1, 2, 3]) {
             const line = capture.infos.find(w => w.includes(`[retry/${n}/3]`));
@@ -229,14 +242,15 @@ describe('Master block-read retries', function () {
 
         // The failed request must have been re-sent: initial + 3 retries = at least 4 requests.
         const addrRequests = requests.filter(r => r.address === 72);
-        assert.ok(
-            addrRequests.length >= 4,
-            `expected >=4 attempts for address 72, got ${JSON.stringify(requests)}`,
-        );
+        assert.ok(addrRequests.length >= 4, `expected >=4 attempts for address 72, got ${JSON.stringify(requests)}`);
     });
 
     it('recovers and stores the value when a retry succeeds', async () => {
-        const capture = { warns: [] as string[], infos: [] as string[], states: [] as Array<{ id: string; val: unknown }> };
+        const capture = {
+            warns: [] as string[],
+            infos: [] as string[],
+            states: [] as Array<{ id: string; val: unknown }>,
+        };
         const requests: RequestInfo[] = [];
         let connectionCount = 0;
         let addr72Requests = 0;
@@ -283,13 +297,23 @@ describe('Master block-read retries', function () {
             `expected the recovered value to be stored, states=${JSON.stringify(capture.states)} requests=${JSON.stringify(requests)}`,
         );
         // Two retries were needed before the successful one; the third retry must NOT have been logged.
-        assert.ok(capture.infos.some(w => w.includes('[retry/1/3]')), 'expected a [retry/1/3] log');
-        assert.ok(capture.infos.some(w => w.includes('[retry/2/3]')), 'expected a [retry/2/3] log');
+        assert.ok(
+            capture.infos.some(w => w.includes('[retry/1/3]')),
+            'expected a [retry/1/3] log',
+        );
+        assert.ok(
+            capture.infos.some(w => w.includes('[retry/2/3]')),
+            'expected a [retry/2/3] log',
+        );
         assert.ok(!capture.infos.some(w => w.includes('[retry/3/3]')), 'no [retry/3/3] expected on recovery');
     });
 
     it('recovers via cheap resend without reconnecting when the device is merely slow', async () => {
-        const capture = { warns: [] as string[], infos: [] as string[], states: [] as Array<{ id: string; val: unknown }> };
+        const capture = {
+            warns: [] as string[],
+            infos: [] as string[],
+            states: [] as Array<{ id: string; val: unknown }>,
+        };
         const requests: RequestInfo[] = [];
         let connectionCount = 0;
         let addr72Requests = 0;
@@ -342,7 +366,10 @@ describe('Master block-read retries', function () {
             `expected the recovered value to be stored, states=${JSON.stringify(capture.states)} requests=${JSON.stringify(requests)}`,
         );
         // One retry was needed before the successful one; no further retries were logged.
-        assert.ok(capture.infos.some(w => w.includes('[retry/1/3]')), 'expected a [retry/1/3] log');
+        assert.ok(
+            capture.infos.some(w => w.includes('[retry/1/3]')),
+            'expected a [retry/1/3] log',
+        );
         assert.ok(!capture.infos.some(w => w.includes('[retry/2/3]')), 'no [retry/2/3] expected on recovery');
 
         // Cheap resend: every attempt for address 72 went over a single TCP connection (no reconnect).
@@ -357,7 +384,11 @@ describe('Master block-read retries', function () {
     });
 
     it('re-sends a failed write and gives up after exhausting all attempts', async () => {
-        const capture = { warns: [] as string[], infos: [] as string[], states: [] as Array<{ id: string; val: unknown }> };
+        const capture = {
+            warns: [] as string[],
+            infos: [] as string[],
+            states: [] as Array<{ id: string; val: unknown }>,
+        };
         const requests: RequestInfo[] = [];
 
         // A device that never answers the FC05 write -> every attempt (initial + retries) times out.
@@ -398,8 +429,14 @@ describe('Master block-read retries', function () {
         await wait(100);
 
         const retryLogs = capture.infos.filter(w => /^\[retry\/\d+\/2\]/.test(w));
-        assert.ok(retryLogs.some(w => w.includes('[retry/1/2]')), 'expected a [retry/1/2] log');
-        assert.ok(retryLogs.some(w => w.includes('[retry/2/2]')), 'expected a [retry/2/2] log');
+        assert.ok(
+            retryLogs.some(w => w.includes('[retry/1/2]')),
+            'expected a [retry/1/2] log',
+        );
+        assert.ok(
+            retryLogs.some(w => w.includes('[retry/2/2]')),
+            'expected a [retry/2/2] log',
+        );
         // Each retry line names the target of the failed write.
         for (const n of [1, 2]) {
             const line = capture.infos.find(w => w.includes(`[retry/${n}/2]`));
@@ -418,7 +455,11 @@ describe('Master block-read retries', function () {
     });
 
     it('recovers when a retried write succeeds', async () => {
-        const capture = { warns: [] as string[], infos: [] as string[], states: [] as Array<{ id: string; val: unknown }> };
+        const capture = {
+            warns: [] as string[],
+            infos: [] as string[],
+            states: [] as Array<{ id: string; val: unknown }>,
+        };
         const requests: RequestInfo[] = [];
         let coilWrites = 0;
 
@@ -461,7 +502,10 @@ describe('Master block-read retries', function () {
 
         assert.strictEqual(requests.length, 2, `expected exactly 2 write attempts, got ${JSON.stringify(requests)}`);
         // One retry was needed before the successful one; no further retries were logged.
-        assert.ok(capture.infos.some(w => w.includes('[retry/1/2]')), 'expected a [retry/1/2] log');
+        assert.ok(
+            capture.infos.some(w => w.includes('[retry/1/2]')),
+            'expected a [retry/1/2] log',
+        );
         assert.ok(!capture.infos.some(w => w.includes('[retry/2/2]')), 'no [retry/2/2] expected on recovery');
         // A successful write must not end in the failure warning.
         assert.ok(
@@ -471,7 +515,11 @@ describe('Master block-read retries', function () {
     });
 
     it('lets two overlapping write-retry sequences both run to completion', async () => {
-        const capture = { warns: [] as string[], infos: [] as string[], states: [] as Array<{ id: string; val: unknown }> };
+        const capture = {
+            warns: [] as string[],
+            infos: [] as string[],
+            states: [] as Array<{ id: string; val: unknown }>,
+        };
         const writes5: number[] = []; // FC05 requests for coil address 5
         const writes6: number[] = []; // FC05 requests for coil address 6
 
@@ -516,7 +564,10 @@ describe('Master block-read retries', function () {
         const deadline = Date.now() + 20_000;
         const done = (): boolean =>
             capture.infos.filter(w => w.includes('[retry/') && w.includes('coils address 5')).length >= 3 &&
-            capture.infos.filter(w => w.includes('[retry/') && w.includes('coils address 6')).length >= 3;
+            capture.infos.filter(w => w.includes('[retry/') && w.includes('coils address 6')).length >= 3 &&
+            // the last attempt can wait behind the in-flight attempt of the other coil
+            writes5.length >= 4 &&
+            writes6.length >= 4;
         while (!done() && Date.now() < deadline) {
             await wait(25);
         }
@@ -524,11 +575,135 @@ describe('Master block-read retries', function () {
 
         // Both sequences must run to completion: each logs all three of its retries.
         for (const n of [1, 2, 3]) {
-            assert.ok(capture.infos.some(w => w.includes(`[retry/${n}/3]`) && w.includes('coils address 5')), `coil 5 should log retry ${n}/3`);
-            assert.ok(capture.infos.some(w => w.includes(`[retry/${n}/3]`) && w.includes('coils address 6')), `coil 6 should log retry ${n}/3`);
+            assert.ok(
+                capture.infos.some(w => w.includes(`[retry/${n}/3]`) && w.includes('coils address 5')),
+                `coil 5 should log retry ${n}/3`,
+            );
+            assert.ok(
+                capture.infos.some(w => w.includes(`[retry/${n}/3]`) && w.includes('coils address 6')),
+                `coil 6 should log retry ${n}/3`,
+            );
         }
         // Each failed write was re-sent: initial + 3 retries = at least 4 requests each.
         assert.ok(writes5.length >= 4, `expected >=4 attempts for coil 5, got ${writes5.length}`);
         assert.ok(writes6.length >= 4, `expected >=4 attempts for coil 6, got ${writes6.length}`);
+    });
+    it('keeps polling after a write retry had to reconnect', async () => {
+        const capture = {
+            warns: [] as string[],
+            infos: [] as string[],
+            states: [] as Array<{ id: string; val: unknown }>,
+        };
+        const reads: number[] = []; // connection number of every FC04 read
+        let connectionCount = 0;
+        let writes = 0;
+
+        // Reads are answered. The first write drops the connection, the second one (on the new connection) is
+        // answered. The reconnect of the write retry clears the timer of the next poll, so the master must start
+        // the polling again after the reconnect - otherwise it stops for good.
+        server = createServer((socket: Socket) => {
+            const connection = ++connectionCount;
+            socket.on('error', () => {
+                /* ignore */
+            });
+            socket.on('data', data => {
+                if (data.length < 12) {
+                    return;
+                }
+                const transactionId = data.readUInt16BE(0);
+                const unitId = data.readUInt8(6);
+                const fc = data.readUInt8(7);
+                const address = data.readUInt16BE(8);
+                if (fc === 0x04) {
+                    reads.push(connection);
+                    socket.write(buildFc4Response(transactionId, unitId, data.readUInt16BE(10)));
+                } else if (fc === 0x05) {
+                    writes++;
+                    if (writes === 1) {
+                        socket.destroy();
+                    } else {
+                        socket.write(buildFc5Response(transactionId, unitId, address, true));
+                    }
+                }
+            });
+        });
+        await new Promise<void>(resolve => server.listen(0, HOST, resolve));
+        const port = (server.address() as { port: number }).port;
+
+        const options = makeOptions(port, 0, 1);
+        options.config.poll = 300;
+        (options as unknown as { objects: Record<string, unknown> }).objects['modbus.0.coils.1.5'] = {
+            native: { regType: 'coils', deviceId: 1, address: 5 },
+        };
+        master = new Master(options, makeFakeAdapter(capture));
+        master.start();
+
+        // write while the polling is idle (between two cycles)
+        const deadline = Date.now() + 10_000;
+        while (!reads.length && Date.now() < deadline) {
+            await wait(10);
+        }
+        await wait(100);
+        void master.write('modbus.0.coils.1.5', { val: true } as ioBroker.State);
+
+        while ((writes < 2 || reads.filter(c => c === 2).length < 2) && Date.now() < deadline) {
+            await wait(25);
+        }
+        assert.strictEqual(writes, 2, 'expected the write to be re-sent once');
+        assert.ok(
+            capture.infos.some(w => w.includes('[retry/1/1]')),
+            'expected a [retry/1/1] log',
+        );
+        assert.ok(
+            reads.filter(c => c === 2).length >= 2,
+            `expected the polling to continue on the new connection, reads=${JSON.stringify(reads)}`,
+        );
+    });
+
+    it('reconnects after the last attempt when no device answers (keepConnectionOnTimeout)', async () => {
+        const capture = {
+            warns: [] as string[],
+            infos: [] as string[],
+            states: [] as Array<{ id: string; val: unknown }>,
+        };
+        const reads: number[] = []; // connection number of every FC04 read
+        let connectionCount = 0;
+
+        // A device that never answers: the retry resends on the open socket, but after the last attempt the
+        // connection must be re-established, as without retries ("No device answers anymore").
+        server = createServer((socket: Socket) => {
+            const connection = ++connectionCount;
+            socket.on('error', () => {
+                /* ignore */
+            });
+            socket.on('data', data => {
+                if (data.length >= 12 && data.readUInt8(7) === 0x04) {
+                    reads.push(connection);
+                }
+            });
+        });
+        await new Promise<void>(resolve => server.listen(0, HOST, resolve));
+        const port = (server.address() as { port: number }).port;
+
+        const options = makeOptions(port, 1);
+        (options.config as unknown as { keepConnectionOnTimeout?: boolean }).keepConnectionOnTimeout = true;
+        master = new Master(options, makeFakeAdapter(capture));
+        master.start();
+
+        const deadline = Date.now() + 10_000;
+        while (connectionCount < 2 && Date.now() < deadline) {
+            await wait(25);
+        }
+        assert.ok(
+            capture.infos.some(w => w.includes('[retry/1/1]')),
+            'expected a [retry/1/1] log',
+        );
+        // both attempts on the first connection: cheap resend
+        assert.deepStrictEqual(reads.slice(0, 2), [1, 1]);
+        assert.ok(
+            capture.warns.includes('No device answers anymore, reconnecting'),
+            `expected the reconnect warning, warns=${JSON.stringify(capture.warns)}`,
+        );
+        assert.ok(connectionCount >= 2, 'expected a new connection after the last attempt');
     });
 });

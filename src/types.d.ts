@@ -434,9 +434,9 @@ export interface ModbusParametersTyped extends ModbusParameters {
     poll: number | string;
     /** Reconnect interval in ms (for master) */
     recon: number | string;
-    /** Number of times a failed block read is re-attempted before giving up (0-10, for master). Default 0 */
+    /** Number of times a failed block read is re-attempted before giving up (0..3, for master). Default 0 */
     readRetryCount: number | string;
-    /** Number of times a failed write is re-attempted before giving up (0-10, for master). Default 0 */
+    /** Number of times a failed write is re-attempted before giving up (0..3, for master). Default 0 */
     writeRetryCount: number | string;
     /** Delay in ms to wait before each retry resend (for master). Default 100 */
     retryInterval: number | string;

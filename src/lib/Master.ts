@@ -34,6 +34,20 @@ export class Master {
      * dropped session triggers a reconnect. Reset to false by the `connect` handler.
      */
     private sessionDead = false;
+    /**
+     * A reconnect was requested by an event handler (timeout, socket error, no device answers) while a retry
+     * sequence was running. The retry reconnects before its next attempt; if no retry is left, the reconnect is
+     * done when the last sequence ends. Without this, e.g. a serial client stays in the `error` state after a
+     * timeout and every following request would wait in its queue forever.
+     */
+    private reconnectRequested = false;
+    /**
+     * With keepConnectionOnTimeout: no polled device answered during a retry sequence. The retry still resends on
+     * the open socket, but if its last attempt fails too, the connection is re-established afterwards.
+     */
+    private silentDuringRetry = false;
+    /** Number of running polling cycles, so a reconnect during a retry restarts the polling only if none runs */
+    private pollsRunning = 0;
     private pulseList: { [id: string]: ioBroker.StateValue } = {};
     private sendBuffer: { [id: string]: ioBroker.StateValue } = {};
     private readonly devices: Options['devices'];
@@ -245,6 +259,9 @@ export class Master {
         this.modbusClient
             .on('connect', () => {
                 this.sessionDead = false;
+                // a fresh connection fulfils a reconnect that was requested before
+                this.reconnectRequested = false;
+                this.silentDuringRetry = false;
                 if (!this.connected) {
                     if (options.config.type === 'tcp' || options.config.type === 'udp') {
                         adapter.log.info(`Connected to slave ${options.config.tcp?.ip}`);
@@ -275,9 +292,10 @@ export class Master {
                     this.reconnectTimeout = null;
                 }
 
-                // A reconnect that is part of a retry sequence must not start its own polling cycle -
-                // the in-flight cycle (which is re-sending the failed operation) continues on its own.
-                if (this.activeRetries === 0) {
+                // A reconnect that is part of a retry sequence must not start a second polling cycle - the
+                // running cycle (which is re-sending the failed read) continues on its own. But a reconnect for
+                // a write retry clears the timer of the next poll, so the polling is started if no cycle runs.
+                if (this.activeRetries === 0 || !this.pollsRunning) {
                     void this.#poll().catch(err => this.adapter.log.error(err));
                 }
 
@@ -329,11 +347,14 @@ export class Master {
             if (this.isStop) {
                 return;
             }
-            // Name the dropped request: it is the one the device did not answer (issue #811). Debug-level - a
-            // handled, expected condition; the retry logic reports retries at info level.
-            adapter.log.debug(
-                `Request cancelled (${info?.reason || 'unknown reason'})${info?.request ? `: ${info.request}` : ''}`,
-            );
+            // Name the dropped request: it is the one the device did not answer (issue #811). While a retry
+            // sequence runs, the retry logs the attempt itself (at info level) and reconnects before it.
+            const text = `Request cancelled (${info?.reason || 'unknown reason'})${info?.request ? `: ${info.request}` : ''}`;
+            if (this.activeRetries > 0) {
+                adapter.log.debug(text);
+            } else {
+                adapter.log.warn(`${text}, reconnecting`);
+            }
             this.#scheduleAutoReconnect();
         });
 
@@ -341,6 +362,11 @@ export class Master {
         // no polled device answers anymore, then the connection itself is probably gone (issue #832)
         this.modbusClient.on('requestTimeout', (info?: TrashedRequestInfo) => {
             if (this.isStop || !this.#allDevicesSilent(info?.silentUnits)) {
+                return;
+            }
+            if (this.activeRetries > 0) {
+                // the retry resends on the open socket and reconnects only if its last attempt fails too
+                this.silentDuringRetry = true;
                 return;
             }
             adapter.log.warn('No device answers anymore, reconnecting');
@@ -409,6 +435,7 @@ export class Master {
      */
     #scheduleAutoReconnect(): void {
         if (this.activeRetries > 0) {
+            this.reconnectRequested = true;
             return;
         }
         this.reconnectTimeout ||= this.adapter.setTimeout(() => this.#reconnect(), 1000);
@@ -419,7 +446,15 @@ export class Master {
      * send on. Bounded by a deadline so an unreachable device cannot stall the polling cycle.
      */
     async #reconnectForRetry(): Promise<void> {
-        this.#reconnect(true);
+        // A connection that is being established (the first connect, or a reconnect that is already scheduled)
+        // is only awaited: tearing it down would abort it and cost the attempt
+        const connecting =
+            !this.sessionDead &&
+            !this.reconnectRequested &&
+            (!!this.connectTimer || !!this.modbusClient?.inState('connect'));
+        if (!connecting) {
+            this.#reconnect(true);
+        }
         const deadline = Date.now() + 5000;
         while (!this.isStop && !this.connected) {
             if (Date.now() > deadline) {
@@ -445,18 +480,20 @@ export class Master {
         }
 
         // A retry sequence owns reconnection while active: the automatic reconnect handlers are suppressed
-        // (#scheduleAutoReconnect) and the auto-poll on `connect` is skipped, so only this operation is
-        // re-sent and no competing polling cycle starts.
+        // (#scheduleAutoReconnect) and a `connect` starts a polling cycle only if none runs, so the failed
+        // operation is re-sent and no competing polling cycle starts.
         const retryInterval = this.options.config.retryInterval ?? 100;
         this.activeRetries += 1;
-        let needsCleanup = false;
+        // set when the last attempt failed: the socket is dead, or (keepConnectionOnTimeout) no device answers
+        let deadSocket = false;
+        let silent = false;
         try {
             let attempt = 0;
             for (;;) {
                 try {
                     // Ensure a live socket before sending: reconnect only when the session actually dropped.
                     // A pure timeout leaves `sessionDead` false, so we cheaply resend on the same socket.
-                    if (!this.connected || this.sessionDead) {
+                    if (!this.connected || this.sessionDead || this.reconnectRequested) {
                         await this.#reconnectForRetry();
                     }
                     // A retry must have a live socket; if reconnection did not bring one up, fail fast (instead
@@ -464,13 +501,19 @@ export class Master {
                     if (attempt > 0 && !this.connected) {
                         throw new Error('no connection for retry');
                     }
-                    return await doOp();
+                    const result = await doOp();
+                    // the device answered, so the connection is alive
+                    this.silentDuringRetry = false;
+                    return result;
                 } catch (err) {
                     const retryable = this.#isRetryable(err);
                     if (!retryable || attempt >= max) {
                         // A dead-socket failure needs the connection torn down and re-established; a Modbus
                         // exception or a pure timeout on a live socket left it healthy, so only clean up then.
-                        needsCleanup = retryable && (!this.connected || this.sessionDead);
+                        if (retryable) {
+                            deadSocket = !this.connected || this.sessionDead || this.reconnectRequested;
+                            silent = this.silentDuringRetry;
+                        }
                         throw err;
                     }
                     attempt += 1;
@@ -481,10 +524,21 @@ export class Master {
                 }
             }
         } finally {
-            if (needsCleanup && !this.isStop) {
+            this.activeRetries -= 1;
+            if (this.isStop) {
+                // nothing to do
+            } else if (this.activeRetries) {
+                // Another sequence is running: tearing the socket down now would cost it an attempt that never
+                // reaches the device. It reconnects before its next attempt, or after its last one if all fail.
+                if (deadSocket) {
+                    this.reconnectRequested = true;
+                }
+            } else if (deadSocket || silent || this.reconnectRequested) {
+                if (silent && !deadSocket) {
+                    this.adapter.log.warn('No device answers anymore, reconnecting');
+                }
                 this.#reconnect(true);
             }
-            this.activeRetries -= 1;
         }
     }
 
@@ -506,6 +560,8 @@ export class Master {
     }
 
     #reconnect(isImmediately?: boolean): void {
+        this.reconnectRequested = false;
+        this.silentDuringRetry = false;
         if (this.reconnectTimeout) {
             this.adapter.clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
@@ -1167,6 +1223,15 @@ export class Master {
     }
 
     async #poll(): Promise<void> {
+        this.pollsRunning++;
+        try {
+            await this.#pollCycle();
+        } finally {
+            this.pollsRunning--;
+        }
+    }
+
+    async #pollCycle(): Promise<void> {
         let anyError: Error | undefined;
         for (const id of this.deviceIds) {
             if (this.#pollInterrupted) {
@@ -1303,7 +1368,12 @@ export class Master {
             // `requestTimeout` handler reconnects when no device answers anymore (issue #832)
             const keep = this.keepConnectionOnTimeout && !!(err as { timeout?: number } | null)?.timeout;
             if (!keep && !this.isStop && !this.reconnectTimeout) {
-                this.#reconnect(true);
+                if (this.activeRetries > 0) {
+                    // a running retry owns the connection and reconnects before its next attempt
+                    this.reconnectRequested = true;
+                } else {
+                    this.#reconnect(true);
+                }
             }
         }
     }
