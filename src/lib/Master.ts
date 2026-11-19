@@ -19,6 +19,35 @@ export class Master {
     private readonly ackObjects: { [id: string]: { val: ioBroker.StateValue } } = {};
     private readonly objects: Options['objects'];
     private isStop = false;
+    /**
+     * Number of operations (block reads / writes) currently being retried. While > 0 the auto-poll that a retry
+     * reconnect would otherwise start is suppressed, so only the operation(s) under retry are re-sent and no
+     * competing polling cycle starts (avoids two overlapping cycles, cf. issue #595). A counter rather than a
+     * boolean because reads and writes retry independently and can overlap: one finishing must not clear the flag
+     * while another is still running.
+     */
+    private activeRetries = 0;
+    /**
+     * True while the underlying connection is known to be dead (a disconnect/close/error event fired) and a
+     * reconnect has not yet re-established it. Drives the "reconnect only when needed" decision in the retry
+     * logic: a pure timeout leaves this false, so retries cheaply resend on the same socket; only an actually-
+     * dropped session triggers a reconnect. Reset to false by the `connect` handler.
+     */
+    private sessionDead = false;
+    /**
+     * A reconnect was requested by an event handler (timeout, socket error, no device answers) while a retry
+     * sequence was running. The retry reconnects before its next attempt; if no retry is left, the reconnect is
+     * done when the last sequence ends. Without this, e.g. a serial client stays in the `error` state after a
+     * timeout and every following request would wait in its queue forever.
+     */
+    private reconnectRequested = false;
+    /**
+     * With keepConnectionOnTimeout: no polled device answered during a retry sequence. The retry still resends on
+     * the open socket, but if its last attempt fails too, the connection is re-established afterwards.
+     */
+    private silentDuringRetry = false;
+    /** Number of running polling cycles, so a reconnect during a retry restarts the polling only if none runs */
+    private pollsRunning = 0;
     private pulseList: { [id: string]: ioBroker.StateValue } = {};
     private sendBuffer: { [id: string]: ioBroker.StateValue } = {};
     private readonly devices: Options['devices'];
@@ -229,6 +258,10 @@ export class Master {
 
         this.modbusClient
             .on('connect', () => {
+                this.sessionDead = false;
+                // a fresh connection fulfils a reconnect that was requested before
+                this.reconnectRequested = false;
+                this.silentDuringRetry = false;
                 if (!this.connected) {
                     if (options.config.type === 'tcp' || options.config.type === 'udp') {
                         adapter.log.info(`Connected to slave ${options.config.tcp?.ip}`);
@@ -259,7 +292,12 @@ export class Master {
                     this.reconnectTimeout = null;
                 }
 
-                void this.#poll().catch(err => this.adapter.log.error(err));
+                // A reconnect that is part of a retry sequence must not start a second polling cycle - the
+                // running cycle (which is re-sending the failed read) continues on its own. But a reconnect for
+                // a write retry clears the timer of the next poll, so the polling is started if no cycle runs.
+                if (this.activeRetries === 0 || !this.pollsRunning) {
+                    void this.#poll().catch(err => this.adapter.log.error(err));
+                }
 
                 this.keepAliveTimeout && adapter.clearTimeout(this.keepAliveTimeout);
                 this.keepAliveTimeout = adapter.setTimeout(() => {
@@ -268,14 +306,16 @@ export class Master {
                 }, options.config.keepAliveInterval || 1000);
             })
             .on('disconnect', () => {
+                this.sessionDead = true;
                 if (this.isStop) {
                     return;
                 }
 
-                this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+                this.#scheduleAutoReconnect();
             });
 
         this.modbusClient.on('close', () => {
+            this.sessionDead = true;
             if (this.usedSerialPort) {
                 // The port is closed - unplugged, or given up before a reconnect - so it is free
                 // again until the `connect` above gets it back
@@ -286,10 +326,11 @@ export class Master {
                 return;
             }
 
-            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.#scheduleAutoReconnect();
         });
 
         this.modbusClient.on('error', err => {
+            this.sessionDead = true;
             if (this.isStop) {
                 return;
             }
@@ -299,18 +340,22 @@ export class Master {
                 adapter.log.warn(`On error: ${formatError(err)}`);
             }
 
-            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.#scheduleAutoReconnect();
         });
 
         this.modbusClient.on('trashCurrentRequest', (info?: TrashedRequestInfo) => {
             if (this.isStop) {
                 return;
             }
-            // Name the dropped request: it is the one the device did not answer (issue #811)
-            adapter.log.warn(
-                `Request cancelled (${info?.reason || 'unknown reason'})${info?.request ? `: ${info.request}` : ''}, reconnecting`,
-            );
-            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+            // Name the dropped request: it is the one the device did not answer (issue #811). While a retry
+            // sequence runs, the retry logs the attempt itself (at info level) and reconnects before it.
+            const text = `Request cancelled (${info?.reason || 'unknown reason'})${info?.request ? `: ${info.request}` : ''}`;
+            if (this.activeRetries > 0) {
+                adapter.log.debug(text);
+            } else {
+                adapter.log.warn(`${text}, reconnecting`);
+            }
+            this.#scheduleAutoReconnect();
         });
 
         // Only with keepConnectionOnTimeout: the request failed, but the connection stays open - unless
@@ -319,8 +364,13 @@ export class Master {
             if (this.isStop || !this.#allDevicesSilent(info?.silentUnits)) {
                 return;
             }
+            if (this.activeRetries > 0) {
+                // the retry resends on the open socket and reconnects only if its last attempt fails too
+                this.silentDuringRetry = true;
+                return;
+            }
             adapter.log.warn('No device answers anymore, reconnecting');
-            this.reconnectTimeout ||= adapter.setTimeout(() => this.#reconnect(), 1000);
+            this.#scheduleAutoReconnect();
         });
     }
 
@@ -366,7 +416,152 @@ export class Master {
         return new Promise<void>(resolve => this.adapter.setTimeout(resolve, ms));
     }
 
+    /** True for failures worth re-attempting: an expired timeout or a dropped connection (and nothing else). */
+    #isRetryable(err: unknown): boolean {
+        if (!err || typeof err !== 'object') {
+            return false;
+        }
+        const e = err as { message?: string; timeout?: number };
+        // Only a resend can fix an expired request timeout or a dropped connection. A Modbus exception, or an
+        // incomplete/invalid response (wrong length/address), is a definitive answer from the device - resending
+        // it fails identically, so it is not retried.
+        return e.timeout !== undefined || e.message?.includes('connection closed') === true;
+    }
+
+    /**
+     * Schedule an automatic reconnect unless a retry sequence is currently driving reconnection itself. While any
+     * operation is being retried (`activeRetries > 0`), the retry logic owns the connection and must not be raced by
+     * these event handlers - otherwise a stray `#reconnect()` would tear down the very socket a retry just opened.
+     */
+    #scheduleAutoReconnect(): void {
+        if (this.activeRetries > 0) {
+            this.reconnectRequested = true;
+            return;
+        }
+        this.reconnectTimeout ||= this.adapter.setTimeout(() => this.#reconnect(), 1000);
+    }
+
+    /**
+     * Re-establish the (dead) connection and wait until we are connected again, so a retry has a live socket to
+     * send on. Bounded by a deadline so an unreachable device cannot stall the polling cycle.
+     */
+    async #reconnectForRetry(): Promise<void> {
+        // A connection that is being established (the first connect, or a reconnect that is already scheduled)
+        // is only awaited: tearing it down would abort it and cost the attempt
+        const connecting =
+            !this.sessionDead &&
+            !this.reconnectRequested &&
+            (!!this.connectTimer || !!this.modbusClient?.inState('connect'));
+        if (!connecting) {
+            this.#reconnect(true);
+        }
+        const deadline = Date.now() + 5000;
+        while (!this.isStop && !this.connected) {
+            if (Date.now() > deadline) {
+                break;
+            }
+            await this.#waitAsync(20);
+        }
+    }
+
+    /**
+     * Perform an operation, re-attempting it up to `maxRetries` times when it fails with a timeout or
+     * connection loss. Each retry is logged as `[retry/k/N]...` and re-sends the same request on the existing
+     * socket (a cheap resend); the connection is only torn down and re-established if it actually dropped
+     * (`sessionDead`). Returns the first successful result, or throws the last error once every attempt (or a
+     * non-retryable device exception) fails. `errorText` renders one log line for a failed attempt.
+     */
+    async #retryable<T>(maxRetries: number, errorText: (err: unknown) => string, doOp: () => Promise<T>): Promise<T> {
+        // Authoritative bound on retries (the admin allows 0..3): even a direct lib caller passing a larger count is
+        // capped here, so one silent device cannot stall the polling cycle for long (issue #432).
+        const max = Math.min(3, Math.max(0, Math.floor(Number(maxRetries) || 0)));
+        if (max <= 0) {
+            return await doOp();
+        }
+
+        // A retry sequence owns reconnection while active: the automatic reconnect handlers are suppressed
+        // (#scheduleAutoReconnect) and a `connect` starts a polling cycle only if none runs, so the failed
+        // operation is re-sent and no competing polling cycle starts.
+        const retryInterval = this.options.config.retryInterval ?? 100;
+        this.activeRetries += 1;
+        // set when the last attempt failed: the socket is dead, or (keepConnectionOnTimeout) no device answers
+        let deadSocket = false;
+        let silent = false;
+        try {
+            let attempt = 0;
+            for (;;) {
+                try {
+                    // Ensure a live socket before sending: reconnect only when the session actually dropped.
+                    // A pure timeout leaves `sessionDead` false, so we cheaply resend on the same socket.
+                    if (!this.connected || this.sessionDead || this.reconnectRequested) {
+                        await this.#reconnectForRetry();
+                    }
+                    // A retry must have a live socket; if reconnection did not bring one up, fail fast (instead
+                    // of queueing into a dead FIFO that would never be flushed) and count it as an attempt.
+                    if (attempt > 0 && !this.connected) {
+                        throw new Error('no connection for retry');
+                    }
+                    const result = await doOp();
+                    // the device answered, so the connection is alive
+                    this.silentDuringRetry = false;
+                    return result;
+                } catch (err) {
+                    const retryable = this.#isRetryable(err);
+                    if (!retryable || attempt >= max) {
+                        // A dead-socket failure needs the connection torn down and re-established; a Modbus
+                        // exception or a pure timeout on a live socket left it healthy, so only clean up then.
+                        if (retryable) {
+                            deadSocket = !this.connected || this.sessionDead || this.reconnectRequested;
+                            silent = this.silentDuringRetry;
+                        }
+                        throw err;
+                    }
+                    attempt += 1;
+                    this.adapter.log.info(`[retry/${attempt}/${max}]${errorText(err)}`);
+                    // Cheap resend: settle briefly on the same socket (the read timeout already spaces silent
+                    // attempts); a dropped session is re-established at the top of the next iteration.
+                    await this.#waitAsync(retryInterval);
+                }
+            }
+        } finally {
+            this.activeRetries -= 1;
+            if (this.isStop) {
+                // nothing to do
+            } else if (this.activeRetries) {
+                // Another sequence is running: tearing the socket down now would cost it an attempt that never
+                // reaches the device. It reconnects before its next attempt, or after its last one if all fail.
+                if (deadSocket) {
+                    this.reconnectRequested = true;
+                }
+            } else if (deadSocket || silent || this.reconnectRequested) {
+                if (silent && !deadSocket) {
+                    this.adapter.log.warn('No device answers anymore, reconnecting');
+                }
+                this.#reconnect(true);
+            }
+        }
+    }
+
+    /**
+     * Perform a single register-block read, re-attempting it up to `readRetryCount` times when it fails with a
+     * timeout or connection loss. See {@link #retryable} for the retry semantics.
+     */
+    async #readWithRetry<T>(
+        deviceId: number,
+        regType: string,
+        regBlock: { start: number; count: number },
+        doRead: () => Promise<T>,
+    ): Promise<T> {
+        return this.#retryable(
+            this.options.config.readRetryCount ?? 0,
+            err => this.#blockErrorText(deviceId, regType, regBlock, err),
+            doRead,
+        );
+    }
+
     #reconnect(isImmediately?: boolean): void {
+        this.reconnectRequested = false;
+        this.silentDuringRetry = false;
         if (this.reconnectTimeout) {
             this.adapter.clearTimeout(this.reconnectTimeout);
             this.reconnectTimeout = null;
@@ -432,17 +627,14 @@ export class Master {
         }
 
         if (this.modbusClient && this.connected && !this.isStop) {
+            const modbus = this.modbusClient;
             let response: ModbusReadResultBinary;
             try {
-                if (regType === 'disInputs') {
-                    response = await this.modbusClient.readDiscreteInputs(
-                        regs.deviceId,
-                        regBlock.start,
-                        regBlock.count,
-                    );
-                } else {
-                    response = await this.modbusClient.readCoils(regs.deviceId, regBlock.start, regBlock.count);
-                }
+                response = await this.#readWithRetry(regs.deviceId, regType, regBlock, () =>
+                    regType === 'disInputs'
+                        ? modbus.readDiscreteInputs(regs.deviceId, regBlock.start, regBlock.count)
+                        : modbus.readCoils(regs.deviceId, regBlock.start, regBlock.count),
+                );
             } catch (err) {
                 this.adapter.log.warn(this.#blockErrorText(regs.deviceId, regType, regBlock, err));
                 // Only abort the whole cycle when the connection itself is gone. A plain Modbus
@@ -555,21 +747,14 @@ export class Master {
         }
 
         if (this.modbusClient && this.connected && !this.isStop) {
+            const modbus = this.modbusClient;
             let response;
             try {
-                if (regType === 'inputRegs') {
-                    response = await this.modbusClient.readInputRegisters(
-                        regs.deviceId,
-                        regBlock.start,
-                        regBlock.count,
-                    );
-                } else {
-                    response = await this.modbusClient.readHoldingRegisters(
-                        regs.deviceId,
-                        regBlock.start,
-                        regBlock.count,
-                    );
-                }
+                response = await this.#readWithRetry(regs.deviceId, regType, regBlock, () =>
+                    regType === 'inputRegs'
+                        ? modbus.readInputRegisters(regs.deviceId, regBlock.start, regBlock.count)
+                        : modbus.readHoldingRegisters(regs.deviceId, regBlock.start, regBlock.count),
+                );
                 if (this.showDebug) {
                     this.adapter.log.debug(`[DevID_${regs.deviceId}/${regType}] Poll address ${regBlock.start} DONE`);
                 }
@@ -1038,6 +1223,15 @@ export class Master {
     }
 
     async #poll(): Promise<void> {
+        this.pollsRunning++;
+        try {
+            await this.#pollCycle();
+        } finally {
+            this.pollsRunning--;
+        }
+    }
+
+    async #pollCycle(): Promise<void> {
         let anyError: Error | undefined;
         for (const id of this.deviceIds) {
             if (this.#pollInterrupted) {
@@ -1082,8 +1276,12 @@ export class Master {
         }
 
         const type: RegisterType = obj.native.regType;
+        const modbusClient = this.modbusClient;
 
         try {
+            // The actual I/O, deferred so a failed write can be re-sent as a whole (see #retryable).
+            let doWrite: (() => Promise<unknown>) | undefined;
+
             if (type === 'coils') {
                 if (val === 'true' || val === true) {
                     val = 1;
@@ -1091,9 +1289,8 @@ export class Master {
                 if (val === 'false' || val === false) {
                     val = 0;
                 }
-                val = parseFloat(val as string);
-
-                await this.modbusClient.writeSingleCoil(obj.native.deviceId, obj.native.address, !!val);
+                const coilVal = !!parseFloat(val as string);
+                doWrite = () => modbusClient.writeSingleCoil(obj.native.deviceId, obj.native.address, coilVal);
             } else if (type === 'holdingRegs') {
                 if (obj.native.float === undefined) {
                     obj.native.float =
@@ -1123,26 +1320,41 @@ export class Master {
                 ) {
                     const hrBuffer = writeValue(obj.native.type, val as string | number, obj.native.len);
 
-                    await this.modbusClient.writeMultipleRegisters(obj.native.deviceId, obj.native.address, hrBuffer);
+                    doWrite = () =>
+                        modbusClient.writeMultipleRegisters(obj.native.deviceId, obj.native.address, hrBuffer);
                 } else {
                     // FC06
                     const buffer = writeValue(obj.native.type, val as number, 1);
 
                     if (obj.native.len > 1) {
-                        for (let r = 0; r < obj.native.len / 2; r++) {
-                            const subBuffer = buffer.subarray(r * 2, r * 2 + 2);
-                            await this.modbusClient.writeSingleRegister(
-                                obj.native.deviceId,
-                                obj.native.address + r,
-                                subBuffer,
-                            );
-                            await this.#waitAsync(this.options.config.writeInterval);
-                        }
+                        doWrite = async () => {
+                            for (let r = 0; r < obj.native.len / 2; r++) {
+                                const subBuffer = buffer.subarray(r * 2, r * 2 + 2);
+                                await modbusClient.writeSingleRegister(
+                                    obj.native.deviceId,
+                                    obj.native.address + r,
+                                    subBuffer,
+                                );
+                                await this.#waitAsync(this.options.config.writeInterval);
+                            }
+                        };
                     } else {
-                        await this.modbusClient.writeSingleRegister(obj.native.deviceId, obj.native.address, buffer);
+                        doWrite = () =>
+                            modbusClient.writeSingleRegister(obj.native.deviceId, obj.native.address, buffer);
                     }
                 }
             }
+
+            if (doWrite) {
+                // A failed write is re-sent up to `writeRetryCount` times (0 = no retries), same as a block read.
+                await this.#retryable(
+                    this.options.config.writeRetryCount ?? 0,
+                    err =>
+                        `Cannot write value ${val} to ${id} (unit ${obj.native.deviceId}, ${type} address ${obj.native.address}): ${formatError(err)}`,
+                    doWrite,
+                );
+            }
+
             if (this.showDebug) {
                 this.adapter.log.debug(`Write successfully [${obj.native.address}]: ${val}`);
             }
@@ -1156,7 +1368,12 @@ export class Master {
             // `requestTimeout` handler reconnects when no device answers anymore (issue #832)
             const keep = this.keepConnectionOnTimeout && !!(err as { timeout?: number } | null)?.timeout;
             if (!keep && !this.isStop && !this.reconnectTimeout) {
-                this.#reconnect(true);
+                if (this.activeRetries > 0) {
+                    // a running retry owns the connection and reconnects before its next attempt
+                    this.reconnectRequested = true;
+                } else {
+                    this.#reconnect(true);
+                }
             }
         }
     }
