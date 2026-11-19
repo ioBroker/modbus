@@ -207,7 +207,7 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 7.12.0 (2026-11-19)
 - (@LoPromise) New parameters `readRetryCount`, `writeRetryCount` and `retryInterval` (master): a failed block read or write is re-sent when it fails with a timeout or connection loss, so one silent device does not drop the whole polling cycle. `readRetryCount` / `writeRetryCount` = number of retries per read / write (default 0 = off), clamped to 0..3; `retryInterval` = delay in ms between resends (default 100). Each retry is logged as `[retry/k/N] ...`; only timeouts and dropped connections are retried - a Modbus exception or an invalid/incomplete response is a definitive answer. Off by default
 
 ### 7.11.1 (2026-11-18)
