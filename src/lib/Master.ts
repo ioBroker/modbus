@@ -1277,6 +1277,8 @@ export class Master {
 
         const type: RegisterType = obj.native.regType;
         const modbusClient = this.modbusClient;
+        // The value as the state shows it (before factor/offset), to confirm a register that is not polled
+        let stateVal: ioBroker.StateValue = val;
 
         try {
             // The actual I/O, deferred so a failed write can be re-sent as a whole (see #retryable).
@@ -1290,6 +1292,7 @@ export class Master {
                     val = 0;
                 }
                 const coilVal = !!parseFloat(val as string);
+                stateVal = coilVal;
                 doWrite = () => modbusClient.writeSingleCoil(obj.native.deviceId, obj.native.address, coilVal);
             } else if (type === 'holdingRegs') {
                 if (obj.native.float === undefined) {
@@ -1304,6 +1307,7 @@ export class Master {
 
                 if (!stringRegisterTypes.includes(obj.native.type)) {
                     val = parseFloat(val as string);
+                    stateVal = val;
                     val = (val - obj.native.offset) / obj.native.factor;
                     if (!obj.native.float) {
                         val = Math.round(val);
@@ -1353,6 +1357,11 @@ export class Master {
                         `Cannot write value ${val} to ${id} (unit ${obj.native.deviceId}, ${type} address ${obj.native.address}): ${formatError(err)}`,
                     doWrite,
                 );
+                // A register that is not polled is never read back: the written value is the known value. Without
+                // it the state was acknowledged with null and a cyclic write of the register stopped
+                if (!obj.native.poll && !(typeof stateVal === 'number' && isNaN(stateVal))) {
+                    this.ackObjects[id.substring(this.adapter.namespace.length + 1)] = { val: stateVal };
+                }
             }
 
             if (this.showDebug) {
@@ -1417,7 +1426,10 @@ export class Master {
                 await this.#waitAsync(this.options.config.poll! * 1.5);
                 const _id = id.substring(this.adapter.namespace.length + 1);
 
-                await this.adapter.setState(id, this.ackObjects[_id] ? this.ackObjects[_id].val : null, true);
+                // No known value (the write failed, nothing read yet): leave the state unacknowledged instead of null
+                if (this.ackObjects[_id]) {
+                    await this.adapter.setState(id, this.ackObjects[_id].val, true);
+                }
             } else {
                 if (this.pulseList[id] === undefined) {
                     const _id = id.substring(this.adapter.namespace.length + 1);
