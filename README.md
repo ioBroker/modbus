@@ -207,6 +207,9 @@ There are some programs in folder `test` to test the TCP communication:
 	Placeholder for the next version (at the beginning of the line):
 	### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+- (@Schimi1983) "Max address gap to combine" splits the read blocks also before a long register (e.g. a string). The gap was bridged, the block read registers that are not configured, and a device that does not have them rejected the whole block ("Illegal data address")
+
 ### 7.12.1 (2026-11-23)
 - (@Schimi1983) A coil or holding register that is not polled keeps the written value after a write. The state was acknowledged with `null`, and a cyclic write of such a register stopped after the first write
 
