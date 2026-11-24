@@ -1378,11 +1378,11 @@ export default class ModbusAdapter extends Adapter {
                 if ((result as Modbus.DeviceMasterOption).blocks) {
                     const blocks = (result as Modbus.DeviceMasterOption).blocks;
                     const wouldExceedLimit = config[i].address + config[i].len - blockStart > maxBlock;
-                    // Start a new block when the gap to the previous register exceeds maxGap.
-                    // With maxGap === 0 any gap splits (even before large registers), so only
-                    // contiguous configured registers are read together (issue #581).
-                    const hasAddressGap =
-                        config[i].address - lastAddress > maxGap && (maxGap === 0 || config[i].len < 10);
+                    // Start a new block when the gap to the previous register exceeds maxGap - also before a
+                    // long register (e.g. a string): bridging the gap would read registers that are not configured
+                    // and may not exist on the device. With maxGap === 0 only contiguous registers are read
+                    // together (issue #581).
+                    const hasAddressGap = config[i].address - lastAddress > maxGap;
 
                     if (hasAddressGap || wouldExceedLimit) {
                         if (!blocks.map(obj => obj.start).includes(blockStart)) {
